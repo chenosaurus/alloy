@@ -1,0 +1,6 @@
+# Install Alloy from this checkout first with python -m pip install -e .
+livekit-portal==0.3.0
+livekit-api==1.2.2
+python-dotenv>=1,<2
+viser==1.1.1
+pillow>=11
