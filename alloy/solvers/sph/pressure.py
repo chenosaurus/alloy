@@ -89,6 +89,7 @@ class Particles:
     nbr_wide: int
     wstart: wp.array[wp.int32]  # first particle of each world
     count: wp.array[wp.int32]
+    pressure_grad: wp.array2d[wp.vec3]  # optional [neighbor slot, particle], valid until advection
 
 
 @wp.func
@@ -104,6 +105,13 @@ def nbr_j(p: Particles, b: int, i: int, k: int) -> int:
     if p.nbr_wide != 0:
         j = j + (wp.int32(p.nbr_hi[k, i]) << 16)
     return j
+
+
+@wp.func
+def pressure_neighbor_grad(p: Particles, xi: wp.vec3, i: int, k: int, j: int, h: float, kind: int) -> wp.vec3:
+    if p.pressure_grad.shape[0] != 0:
+        return p.pressure_grad[k, i]
+    return kernel_grad(xi - p.q[j], h, kind)
 
 
 @wp.struct
@@ -169,6 +177,8 @@ def density_alpha_kernel(
         mj = p.mass[j]
         rho += mj * kernel_w(wp.length(rv), h, kind)
         g = kernel_grad(rv, h, kind)
+        if p.pressure_grad.shape[0] != 0:
+            p.pressure_grad[k, i] = g
         G += (mj * inv_r0) * g
         sq += (mi * mj * inv_r0 * inv_r0) * wp.dot(g, g)
     psi = float(0.0)
@@ -203,7 +213,7 @@ def density_rate(p: Particles, sl: Slots, i: int, h: float, kind: int) -> float:
     b_ = nbr_base(p, i)
     for k in range(p.count[i]):
         j = nbr_j(p, b_, i, k)
-        g = kernel_grad(xi - p.q[j], h, kind)
+        g = pressure_neighbor_grad(p, xi, i, k, j, h, kind)
         rate += (p.mass[j] * inv_r0) * wp.dot(vi - p.qd[j], g)
     for b in range(4):
         if sl.shape[i, b] >= 0:
@@ -269,7 +279,7 @@ def pressure_accel(p: Particles, sl: Slots, kappa: wp.array[wp.float32], i: int,
     b_ = nbr_base(p, i)
     for k in range(p.count[i]):
         j = nbr_j(p, b_, i, k)
-        g = kernel_grad(xi - p.q[j], h, kind)
+        g = pressure_neighbor_grad(p, xi, i, k, j, h, kind)
         a -= (p.mass[j] * (ki + kappa[j] / p.rho0[j])) * g
     for b in range(4):
         if sl.shape[i, b] >= 0:
@@ -302,7 +312,7 @@ def accel_divergence(p: Particles, sl: Slots, acc: wp.array[wp.vec3], i: int, h:
     b_ = nbr_base(p, i)
     for k in range(p.count[i]):
         j = nbr_j(p, b_, i, k)
-        g = kernel_grad(xi - p.q[j], h, kind)
+        g = pressure_neighbor_grad(p, xi, i, k, j, h, kind)
         ar += (p.mass[j] * inv_r0) * wp.dot(ai - acc[j], g)
     for b in range(4):
         if sl.shape[i, b] >= 0:

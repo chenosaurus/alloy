@@ -153,6 +153,12 @@ class SolverDFSPH(PressureSolves, SPHCouplingMixin, SolverBase, CouplingInterfac
         self._alloc_tolerance()
         self._cg = (ProjectedCG(n, W, d, self._reducer, self._w, self._lower, self._ctl)
                     if self.pressure_solver == "cg" else None)
+        # Pressure iterations reuse the same gradients until particles advect.
+        # Bound scratch memory so large batches keep their existing memory behavior.
+        grad_bytes = 12 * cfg.neighbor_capacity * n
+        self._pressure_grad = None
+        if self._cg is not None and d.is_cuda and 0 < grad_bytes <= (32 << 20):
+            self._pressure_grad = wp.empty((cfg.neighbor_capacity, n), dtype=wp.vec3, device=d)
         self._visc = (ImplicitViscosity(n, W, d, self._reducer, self.model.sph.viscosity, self._n_active,
                                         cfg.viscosity_tolerance, cfg.viscosity_max_iterations,
                                         LAPLACE_D / laplacian_lattice_factor(cfg.spacing, cfg.h, cfg.kernel),
@@ -225,6 +231,8 @@ class SolverDFSPH(PressureSolves, SPHCouplingMixin, SolverBase, CouplingInterfac
             self._tension.check_dt(dt)
         self._copy_state(state_in, state_out)
         p = self._particles(state_out)
+        if self._pressure_grad is not None:
+            p.pressure_grad = self._pressure_grad
         bq_in = self._body_state(state_in)[0]  # start-of-step poses (sweep, leak monitor)
         bq, bqd = self._body_state(state_out)
         self._begin_step()
