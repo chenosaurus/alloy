@@ -262,11 +262,11 @@ class Camera:
     def __init__(self, name: str = "camera", pose=None, look_at=None, attach_to=None, width: int = 128,
                  height: int = 128, fov: float = 60.0, spp: int = 16, settings: RenderSettings | None = None,
                  clip: tuple[float, float] = (0.01, 1000.0), fit: str = "VERTICAL", denoise=None,
-                 backend: str | None = None):
+                 backend: str | None = None, look=None, quality: str = "auto"):
         """``denoise``: None, "auto", "learned", "oidn" or a :class:`~alloy.camera.denoise.DenoiseSpec` (weights,
         tta); "auto" lets 4-8 spp look like hundreds of samples. ``backend``: "warp", "optix", "auto" or
         "wavefront-warp" (see :class:`RenderSettings`); None keeps the settings' own (``ALLOY_CAMERA_BACKEND``, else
-        "warp")."""
+        "warp"). ``look`` and ``quality`` select the materials and lights for this live camera."""
         if pose is not None and look_at is not None:
             raise CameraError("both pose and look_at given", "pass one of them")
         if int(spp) < 1:
@@ -284,6 +284,7 @@ class Camera:
         from .denoise import as_spec
         self.denoise, self._denoiser = as_spec(denoise), None
         self.backend = backend
+        self.look, self.quality = look, quality
 
     # ------------------------------------------------------------------ pose
     def set_pose(self, pose=None, look_at=None) -> None:
@@ -367,7 +368,8 @@ class Camera:
     # ------------------------------------------------------------------ internals
     def _bind(self, source, items: dict | None = None):
         model = unwrap_sim(source)[0]
-        sc = camera_scene(source, device=getattr(model, "device", None), items=items)
+        sc = camera_scene(source, device=getattr(model, "device", None), items=items,
+                          look=self.look, quality=self.quality)
         if self._bound is None or self._bound[0] is not sc:
             if _is_pbr(sc):
                 from .pbr import PbrRenderer
