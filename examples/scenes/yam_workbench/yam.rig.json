@@ -1,0 +1,110 @@
+{
+  "roots": {
+    "left": "left_base",
+    "right": "right_base"
+  },
+  "joints": {
+    "left_joint_1.pos": "left_joint1",
+    "left_joint_2.pos": "left_joint2",
+    "left_joint_3.pos": "left_joint3",
+    "left_joint_4.pos": "left_joint4",
+    "left_joint_5.pos": "left_joint5",
+    "left_joint_6.pos": "left_joint6",
+    "left_gripper.pos": "left_finger_a_joint",
+    "right_joint_1.pos": "right_joint1",
+    "right_joint_2.pos": "right_joint2",
+    "right_joint_3.pos": "right_joint3",
+    "right_joint_4.pos": "right_joint4",
+    "right_joint_5.pos": "right_joint5",
+    "right_joint_6.pos": "right_joint6",
+    "right_gripper.pos": "right_finger_a_joint"
+  },
+  "gripper_travel": {
+    "left": 0.04695,
+    "right": 0.04695
+  },
+  "home": {
+    "left_joint_1.pos": 0.0,
+    "left_joint_2.pos": 1.1,
+    "left_joint_3.pos": 1.2,
+    "left_joint_4.pos": -0.65,
+    "left_joint_5.pos": 0.0,
+    "left_joint_6.pos": 0.0,
+    "left_gripper.pos": 0.65,
+    "right_joint_1.pos": 0.0,
+    "right_joint_2.pos": 1.1,
+    "right_joint_3.pos": 1.2,
+    "right_joint_4.pos": -0.65,
+    "right_joint_5.pos": 0.0,
+    "right_joint_6.pos": 0.0,
+    "right_gripper.pos": 0.65
+  },
+  "cameras": {
+    "overhead_camera": {
+      "look_at": [
+        [
+          0.0,
+          0.0,
+          0.7473
+        ],
+        [
+          0.46,
+          0.0,
+          -0.0027
+        ]
+      ],
+      "fov": 69,
+      "fit": "HORIZONTAL"
+    },
+    "left_wrist_camera": {
+      "attach_to": "yam/left_d405",
+      "look_at": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0.3
+        ],
+        [
+          0,
+          -1,
+          0
+        ]
+      ],
+      "fov": 74,
+      "clip": [
+        0.005,
+        20.0
+      ]
+    },
+    "right_wrist_camera": {
+      "attach_to": "yam/right_d405",
+      "look_at": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0.3
+        ],
+        [
+          0,
+          -1,
+          0
+        ]
+      ],
+      "fov": 74,
+      "clip": [
+        0.005,
+        20.0
+      ]
+    }
+  }
+}

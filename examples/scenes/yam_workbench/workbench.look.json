@@ -1,0 +1,34 @@
+{
+  "materials": {
+    "worktop": {"preset": "wood_plywood", "res": "1k", "roughness": 0.48, "scale_m": 0.8},
+    "arm": {"preset": "aluminum_anodized_black", "base_color": [0.055, 0.055, 0.06], "roughness": 0.62},
+    "arm_cover": {"preset": "plastic_matte", "base_color": [0.86, 0.86, 0.84], "roughness": 0.64},
+    "grip": {"preset": "rubber_black"},
+    "camera": {"preset": "abs_black"},
+    "legs": {"preset": "powder_coat_black"},
+    "wall": {"preset": "plaster_paint", "base_color": [0.72, 0.74, 0.76]},
+    "floor": {"preset": "plastic_matte", "base_color": [0.24, 0.26, 0.28], "roughness": 0.75},
+    "tray": {"preset": "plastic_matte", "base_color": [0.08, 0.19, 0.28], "roughness": 0.4},
+    "block": {"preset": "plastic_matte", "base_color": [0.8, 0.21, 0.06], "roughness": 0.3},
+    "part": {"preset": "steel_brushed"}
+  },
+  "assign": [
+    {"match": "table_leg", "material": "legs"},
+    {"match": "table", "material": "worktop"},
+    {"match": "finger", "material": "grip"},
+    {"match": "d405", "material": "camera"},
+    {"match": "^yam(?:_bench)?/.*/(?:geom87|geom103|geom183|geom199)$", "material": "arm_cover"},
+    {"match": "^yam(?:_bench)?/", "material": "arm"},
+    {"match": "floor", "material": "floor"},
+    {"match": "back_wall", "material": "wall"},
+    {"match": "parts_tray", "material": "tray"},
+    {"match": "metal_part", "material": "part"},
+    {"match": "block", "material": "block"}
+  ],
+  "lights": [
+    {"type": "area", "eye": [0.35, -0.7, 1.8], "target": [0.2, 0, 0.1], "size_m": [1.1, 0.65], "watts": 110, "kelvin": 5200},
+    {"type": "area", "eye": [-0.65, 0.9, 1.3], "target": [0.15, 0, 0.25], "size_m": [0.7, 0.9], "watts": 65, "kelvin": 6500}
+  ],
+  "world": {"strength": 0.25},
+  "render": {"view": "AgX", "look": "AgX - Medium High Contrast", "exposure": 0.0}
+}
