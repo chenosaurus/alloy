@@ -123,8 +123,8 @@ def add_workbench(scene: alloy.Scene, look: dict | None, *, scenery: bool = True
         glassware.add_beaker(scene)
         scene.add_open_box("pour_basin", inner=glassware.RECEIVER_INNER, wall=.005, pos=glassware.RECEIVER_ORIGIN)
     if look is not None:
-        look["materials"]["cup_glass"] = dict(glassware.GLASS)
-        look["assign"].insert(0, {"match": "^(cup|beaker)", "material": "cup_glass"})
+        look.setdefault("materials", {})["cup_glass"] = dict(glassware.GLASS)
+        look.setdefault("assign", []).insert(0, {"match": "^(cup|beaker)", "material": "cup_glass"})
         if pourable:
             look["materials"]["pour_basin"] = {"preset": "plastic_matte", "base_color": [.07, .24, .32]}
             look["assign"].insert(0, {"match": "^pour_basin", "material": "pour_basin"})
@@ -160,5 +160,5 @@ def add_household_objects(scene: alloy.Scene, look: dict | None) -> None:
             "tomato": {"preset": "plastic_matte", "base_color": [.72, .045, .022], "roughness": .45},
             "water_bottle": {"preset": "plastic_matte", "base_color": [.15, .56, .8], "roughness": .28},
         }
-        look["materials"].update(materials)
-        look["assign"][:0] = [{"match": f"^{name}", "material": name} for name in materials]
+        look.setdefault("materials", {}).update(materials)
+        look.setdefault("assign", [])[:0] = [{"match": f"^{name}", "material": name} for name in materials]
