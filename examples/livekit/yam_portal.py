@@ -10,6 +10,7 @@ from fractions import Fraction
 import math
 import json
 import os
+import sys
 from pathlib import Path
 import time
 
@@ -30,7 +31,7 @@ class Simulation:
         self.fluid_scene = args.scene == "glass-water"
         self.pourable_cup = args.pourable_cup
         quality = "full" if self.fluid_scene else args.render_quality
-        mjcf, self.limits = self.rig.mjcf()
+        mjcf, self.limits = self.rig.mjcf(interactive=args.realtime_fluid)
         self.joints = {field: f"yam/{name}" for field, name in self.rig.joints.items()}
         scene = alloy.Scene(dt=args.control_dt, liquid_cfl=args.liquid_cfl, liquid_accuracy=args.liquid_accuracy)
         scene.add_robot("yam", mjcf=mjcf)
@@ -40,7 +41,9 @@ class Simulation:
         if quality == "fast" and self.look:
             apply_fast_look(scene, self.look)
         print(f"Building dual YAM on {args.device}; first use may compile kernels for several minutes", flush=True)
-        self.sim = alloy.build(scene, device=args.device)
+        self.sim = alloy.build(scene, device=args.device,
+                               liquid_coupling="interactive" if args.realtime_fluid else "standard",
+                               contact_capacity=64 if args.realtime_fluid else None)
         if not render_only:
             home = self.validate(self.rig.home)
             targets = self.to_targets(home)
@@ -135,11 +138,13 @@ class Simulation:
 
     def prewarm_splash(self):
         """Warm the GPU graphs for a representative splash, then restore the settled scene."""
-        try:
-            self.sim.set_pose("block", pos=(*self.cup_origin[:2], .16), world=0)
-            self.sim.step(round(.31 / self.sim.dt))
-        finally:
-            self.reset()
+        heights = (.16, .14, .18) if self.args.realtime_fluid else (.16,)
+        for height in heights:
+            try:
+                self.sim.set_pose("block", pos=(*self.cup_origin[:2], height), world=0)
+                self.sim.step(round((.48 if self.args.realtime_fluid else .31) / self.sim.dt))
+            finally:
+                self.reset()
         print(f"Splash warmup finished; GPU graph resets kept={self.sim.report()['graph'].get('reset_kept', 0)}",
               flush=True)
 
@@ -222,10 +227,15 @@ async def robot_main(args):
     from livekit.portal import Robot, RobotConfig, RpcError
     url, token = credentials(args, "alloy-yam-robot")
     loop = asyncio.get_running_loop()
+    simulation_cls = Simulation
+    if args.split_render:
+        from .split_render import SplitSimulation
+
+        simulation_cls = SplitSimulation
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="alloy") as pool:
         async def work(fn, *values):
             return await loop.run_in_executor(pool, fn, *values)
-        sim = await work(Simulation, args)
+        sim = await work(simulation_cls, args)
         try:
             robot = Robot(config(RobotConfig, args))
         except BaseException:
@@ -271,11 +281,13 @@ async def robot_main(args):
         robot.on_operator_left(lambda who: invalidate() if who == robot.active_operator() else None)
         robot.register_rpc_method("sim.motion", request_motion)
         try:
-            if args.prewarm_splash:
+            if args.prewarm_splash and not args.split_render:
                 await work(sim.prewarm_splash)
             await work(sim.tick, None, 1)  # Warm renderer before joining the room.
             await work(sim.check)
             await robot.connect(url, token)
+            if args.split_render:
+                sim.start()
             print(f"Connected robot in room {args.room}; waiting for operator", flush=True)
             start, report = time.monotonic(), time.monotonic()
             next_frame = start
@@ -306,7 +318,8 @@ async def robot_main(args):
                     rendering = loop.run_in_executor(pool, sim.enqueue_frame, state)
                     timestamp = pending_timestamp
                 else:
-                    observation = await work(sim.tick, command, steps)
+                    tick_args = (command, steps, received + action_timeout) if args.split_render else (command, steps)
+                    observation = await work(sim.tick, *tick_args)
                     timestamp = robot.now_us()
                 if reset is not None:
                     if observation is None:
@@ -468,6 +481,13 @@ def main():
     parser.add_argument("--joined-cameras", action="store_true", help="Trace the full-material views in one ray batch")
     parser.add_argument("--pipeline-render", action="store_true",
                         help="Overlap the current video frame's OptiX denoising with the next physics step")
+    parser.add_argument("--split-render", action="store_true",
+                        help="Step physics continuously in a second CUDA process under MPS")
+    parser.add_argument("--realtime-fluid", action="store_true",
+                        help="Use the interactive fluid solver and pace split physics against wall time")
+    parser.add_argument("--snapshot-delay-ms", type=float, default=120.,
+                        help="Render interpolated split snapshots this far behind the physics worker")
+    parser.add_argument("--demo-splash-after", type=float, help="Drop the workbench block into the cup after this delay")
     parser.add_argument("--camera-backend", choices=("warp", "optix", "auto", "wavefront-warp"),
                         help="Ray tracing backend; optix uses RT cores after its helper is built")
     parser.add_argument("--look", type=Path, help="Full-material look JSON; also adds workbench scenery")
@@ -500,8 +520,22 @@ def main():
         parser.error("pourable-cup needs glass-water with --cup-collision surface")
     if args.scene == "glass-water" and args.render_quality == "fast":
         parser.error("glass-water needs full materials for transparent glass and water")
-    if args.prewarm_splash and (args.scene != "glass-water" or not args.pipeline_render):
-        parser.error("prewarm-splash needs the glass-water scene and --pipeline-render")
+    if args.split_render:
+        if (args.mode != "robot" or args.scene != "glass-water" or not args.joined_cameras
+                or args.camera_backend != "optix" or args.denoise != "optix" or args.viewer
+                or not args.device.startswith("cuda") or args.pipeline_render or args.steps_per_frame is not None):
+            parser.error("split-render needs a CUDA glass-water robot with joined OptiX cameras and no viewer")
+        if sys.platform != "linux" or not os.environ.get("CUDA_MPS_PIPE_DIRECTORY"):
+            parser.error("split-render needs a Linux CUDA MPS session. Use run_fluid_mps_linux.sh")
+        if not math.isfinite(args.snapshot_delay_ms) or args.snapshot_delay_ms < 0:
+            parser.error("snapshot-delay-ms must be finite and nonnegative")
+    if args.realtime_fluid and (not args.split_render or args.cup_collision != "surface"):
+        parser.error("realtime-fluid needs --split-render and --cup-collision surface")
+    if args.prewarm_splash and (args.scene != "glass-water" or not (args.pipeline_render or args.split_render)):
+        parser.error("prewarm-splash needs the glass-water scene and split or pipelined rendering")
+    if args.demo_splash_after is not None and (not args.split_render or not math.isfinite(args.demo_splash_after)
+                                               or args.demo_splash_after < 0):
+        parser.error("demo-splash-after needs --split-render and a finite, nonnegative delay")
     if args.mode in ("robot", "operator", "reset"):
         asyncio.run({"robot": robot_main, "operator": operator_main, "reset": reset_main}[args.mode](args))
         return
