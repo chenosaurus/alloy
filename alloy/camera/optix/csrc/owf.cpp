@@ -109,6 +109,50 @@ struct CtxGuard {
     }
 };
 
+struct Denoiser {
+    CUcontext cu;
+    OptixDeviceContext context = nullptr;
+    OptixDenoiser handle = nullptr;
+    CUdeviceptr state = 0, scratch = 0;
+    unsigned width, height;
+    OptixDenoiserSizes sizes = {};
+
+    Denoiser(CUcontext cu, unsigned width, unsigned height) : cu(cu), width(width), height(height) {}
+
+    int setup(CUstream stream) {
+        CtxGuard guard(cu);
+        if (!guard.ok) {
+            g_err = "cannot make the denoiser's CUDA context current";
+            return -1;
+        }
+        OptixDeviceContextOptions context_options = {};
+        OptixDenoiserOptions options = {};
+        options.guideAlbedo = options.guideNormal = 1;
+        OWF_OX(optixInit());
+        OWF_OX(optixDeviceContextCreate(cu, &context_options, &context));
+        OWF_OX(optixDenoiserCreate(context, OPTIX_DENOISER_MODEL_KIND_HDR, &options, &handle));
+        OWF_OX(optixDenoiserComputeMemoryResources(handle, width, height, &sizes));
+        OWF_CU(cuMemAlloc(&state, sizes.stateSizeInBytes));
+        OWF_CU(cuMemAlloc(&scratch, sizes.withoutOverlapScratchSizeInBytes));
+        OWF_OX(optixDenoiserSetup(handle, stream, width, height, state, sizes.stateSizeInBytes,
+                                  scratch, sizes.withoutOverlapScratchSizeInBytes));
+        return 0;
+    }
+
+    OptixImage2D image(CUdeviceptr data) const {
+        return OptixImage2D{data, width, height, width * 12, 12, OPTIX_PIXEL_FORMAT_FLOAT3};
+    }
+
+    ~Denoiser() {
+        CtxGuard guard(cu);
+        if (!guard.ok) return;
+        if (handle) optixDenoiserDestroy(handle);
+        if (state) cuMemFree(state);
+        if (scratch) cuMemFree(scratch);
+        if (context) optixDeviceContextDestroy(context);
+    }
+};
+
 void log_cb(unsigned int level, const char* tag, const char* msg, void* data) {
     auto* o = static_cast<Owf*>(data);
     if (level <= 2) fprintf(stderr, "[optix %u][%s] %s\n", level, tag, msg);
@@ -272,6 +316,36 @@ int submit_worlds(Owf* o, CUstream s, bool update) {
 }  // namespace
 
 extern "C" {
+
+void* owf_denoiser_create(CUcontext cu, CUstream stream, unsigned width, unsigned height) {
+    auto* dn = new Denoiser(cu, width, height);
+    if (dn->setup(stream) == 0) return dn;
+    delete dn;
+    return nullptr;
+}
+
+int owf_denoiser_invoke(void* h, CUstream stream, CUdeviceptr rgb, CUdeviceptr albedo,
+                       CUdeviceptr normal, CUdeviceptr output) {
+    auto* dn = static_cast<Denoiser*>(h);
+    CtxGuard guard(dn->cu);
+    if (!guard.ok) {
+        g_err = "cannot make the denoiser's CUDA context current";
+        return -1;
+    }
+    OptixDenoiserParams params = {};
+    OptixDenoiserGuideLayer guide = {};
+    guide.albedo = dn->image(albedo);
+    guide.normal = dn->image(normal);
+    OptixDenoiserLayer layer = {};
+    layer.input = dn->image(rgb);
+    layer.output = dn->image(output);
+    OWF_OX(optixDenoiserInvoke(dn->handle, stream, &params, dn->state, dn->sizes.stateSizeInBytes,
+                               &guide, &layer, 1, 0, 0, dn->scratch,
+                               dn->sizes.withoutOverlapScratchSizeInBytes));
+    return 0;
+}
+
+void owf_denoiser_destroy(void* h) { delete static_cast<Denoiser*>(h); }
 
 const char* owf_last_error() { return g_err.c_str(); }
 

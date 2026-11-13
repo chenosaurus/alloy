@@ -26,7 +26,7 @@ import warp as wp
 from .errors import CameraError
 
 log = logging.getLogger(__name__)
-KINDS = ("auto", "learned", "oidn", "off", None)
+KINDS = ("auto", "learned", "oidn", "optix", "off", None)
 
 
 @dataclass(frozen=True)
@@ -157,6 +157,9 @@ def make_denoiser(denoise, width: int, height: int, device: str):
             raise CameraError(f"denoise={kind!r} on {device}", "denoise on a CUDA device, or use denoise=None")
         _say_once(f"denoise='auto': the denoisers need a CUDA device, so images on {device} are not denoised")
         return None
+    if kind == "optix":
+        from .optix.denoise import OptixDenoiser
+        return OptixDenoiser(width, height, device)
     learned = ""
     if kind in ("auto", "learned"):
         try:

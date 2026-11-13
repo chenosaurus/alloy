@@ -56,6 +56,12 @@ def _declare(lib: ctypes.CDLL) -> None:
         fn = getattr(lib, name)
         fn.restype, fn.argtypes = res, args
     lib.owf_destroy.argtypes = [vp]
+    lib.owf_denoiser_create.restype = vp
+    lib.owf_denoiser_create.argtypes = [vp, vp, ctypes.c_uint, ctypes.c_uint]
+    lib.owf_denoiser_invoke.restype = i32
+    lib.owf_denoiser_invoke.argtypes = [vp, vp, u64, u64, u64, u64]
+    lib.owf_denoiser_destroy.restype = None
+    lib.owf_denoiser_destroy.argtypes = [vp]
 
 
 def lib() -> ctypes.CDLL:

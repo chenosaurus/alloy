@@ -263,7 +263,7 @@ class Camera:
                  height: int = 128, fov: float = 60.0, spp: int = 16, settings: RenderSettings | None = None,
                  clip: tuple[float, float] = (0.01, 1000.0), fit: str = "VERTICAL", denoise=None,
                  backend: str | None = None, look=None, quality: str = "auto"):
-        """``denoise``: None, "auto", "learned", "oidn" or a :class:`~alloy.camera.denoise.DenoiseSpec` (weights,
+        """``denoise``: None, "auto", "learned", "oidn", "optix" or a :class:`~alloy.camera.denoise.DenoiseSpec` (weights,
         tta); "auto" lets 4-8 spp look like hundreds of samples. ``backend``: "warp", "optix", "auto" or
         "wavefront-warp" (see :class:`RenderSettings`); None keeps the settings' own (``ALLOY_CAMERA_BACKEND``, else
         "warp"). ``look`` and ``quality`` select the same materials and lights as a snapshot,

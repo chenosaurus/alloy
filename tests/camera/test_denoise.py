@@ -73,17 +73,29 @@ def test_oidn_availability_says_how_to_install(monkeypatch, tmp_path):
 
 
 @pytest.mark.gpu
-def test_oidn_denoises_the_furnace_plane(tmp_path):
-    if not available()[0]:
-        pytest.skip("OIDN not installed")
+@pytest.mark.parametrize("kind", ("oidn", "optix"))
+def test_denoises_the_furnace_plane(tmp_path, kind):
+    if kind == "oidn":
+        if not available()[0]:
+            pytest.skip("OIDN not installed")
+    else:
+        from alloy.camera.optix import available as optix_available
+        if not optix_available("cuda:0")[0]:
+            pytest.skip("OptiX helper not built")
     scene = load_pack(write_pack_v2(tmp_path / "f", principled_material((0.5, 0.5, 0.5), specular=0.5), sky=0.5),
                       device="cuda:0")
     raw = Camera("raw", width=32, height=32, spp=1).render(scene, output="linear").numpy().copy()
-    clean = Camera("dn", width=32, height=32, spp=1, denoise="oidn").render(scene, output="all")
+    camera = Camera("dn", width=32, height=32, spp=1, denoise=kind)
+    clean = camera.render(scene, output="all")
     lin = clean.linear.numpy()
     assert np.isfinite(lin).all() and lin.std() < 0.5 * raw.std()
     assert abs(lin.mean() - raw.mean()) < 0.05 * raw.mean()
     assert np.array_equal(clean.noisy.numpy(), raw)  # same seed: the raw colour is kept alongside
+    reused = camera.render(scene, output="linear", seed=7).numpy()
+    fresh = Camera("dn", width=32, height=32, spp=1, denoise=kind).render(
+        scene, output="linear", seed=7).numpy()
+    np.testing.assert_array_equal(reused, fresh)
+    assert not np.array_equal(reused, lin)
 
 
 class _Cuda:
