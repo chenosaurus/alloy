@@ -1,6 +1,6 @@
 {
   "materials": {
-    "worktop": {"preset": "wood_plywood", "res": "1k", "roughness": 0.48, "scale_m": 0.8},
+    "worktop": {"preset": "plastic_matte", "base_color": [0.62, 0.44, 0.26], "roughness": 0.48},
     "arm": {"preset": "aluminum_anodized_black", "base_color": [0.055, 0.055, 0.06], "roughness": 0.62},
     "arm_cover": {"preset": "plastic_matte", "base_color": [0.86, 0.86, 0.84], "roughness": 0.64},
     "grip": {"preset": "rubber_black"},
