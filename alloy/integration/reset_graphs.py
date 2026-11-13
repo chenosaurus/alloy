@@ -24,9 +24,8 @@ What a reset does, and what of it a captured period can notice:
 So ``watch`` marks the simulation whenever one of its solvers is told the model changed, by any caller, or one of
 health's setters that rebind an array is called (``HEALTH_SETTERS``: each says "before any graph capture", and a late
 call used to be repaired by the next reset's drop), once the simulation has stepped: before its first step nothing is
-captured yet. ``after_reset`` keeps the graphs only when nothing was marked since the graphs were last dropped and
-the scene has one entry solver, of a kind the law covers (``KEPT_SOLVERS``: MuJoCo Warp, or VBD cloth / soft
-bodies), with no plug-in host and no topology controller. Otherwise it drops them as before, and logs why once.
+captured yet. ``after_reset`` keeps graphs when nothing was marked since the graphs were last dropped, there is
+no plug-in host or topology controller, and the solver configuration is covered by the law below.
 ``sim.reset_keeps_graphs = False`` drops them always (the law's reference run).
 
 Law: a run with masked resets is the same bit for bit with the graphs kept as with them dropped.
@@ -35,8 +34,10 @@ Law: a run with masked resets is the same bit for bit with the graphs kept as wi
 - One L4 (tests/integration/test_reset_graphs_gpu.py), difference kept vs dropped / between two dropped runs, and a
   masked reset plus a step, kept / dropped: cubes in 64 worlds 0.0 / 0.0, 26.6 / 54.7 ms; the same on the fast
   profile 0.0 / 0.0, 1.7 / 13.7 ms; a cloth in 8 worlds 0.0 / 0.0, 37.8 / 131.1 ms; health records equal.
-- Coupled scenes (more than one entry solver) still drop their graphs (WP0's review). The one measured, a ball
-  under a cloth (MuJoCo Warp + VBD under the Scheduler), is bit for bit kept vs dropped on CPU graphs (3 worlds,
+- Coupled scenes drop their graphs by default. The opt-in ``keep_coupled_graphs=True`` permits an unchanged
+  MuJoCo Warp + SPH pair in the proxy Scheduler. A free-falling sphere beside a static cup matched bit for bit
+  on an RTX 5090 after restoring the settled state, with and without keeping the graphs.
+- A ball under a cloth (MuJoCo Warp + VBD under the Scheduler) is bit for bit kept vs dropped on CPU graphs (3 worlds,
   masked resets and a full one), but on a GPU it does not repeat (two dropped runs differ by 15 mm after 24
   periods, the kept run by 14 mm), and a row inside that spread cannot show a stale binding. The row that lifts the
   refusal: a coupled scene that repeats bit for bit on the GPU, then kept vs dropped 0.0.
@@ -55,6 +56,7 @@ __all__ = ["HEALTH_SETTERS", "KEPT_SOLVERS", "after_reset", "keep", "watch"]
 
 # exact class names (module doc): MuJoCo Warp as Newton's solver or Alloy's synced one, VBD for cloth and soft bodies
 KEPT_SOLVERS = ("SolverMuJoCo", "SyncedMuJoCo", "SolverVBD", "SolverVBDAlloy", "SolverVBDMomentum")
+RIGID_SOLVERS = frozenset(("SolverMuJoCo", "SyncedMuJoCo"))
 HEALTH_SETTERS = ("set_cut_front", "skip_soft_contacts", "set_soft_strain", "register_depth_check")  # rebind arrays
 _LOGGED: set[str] = set()
 
@@ -92,7 +94,7 @@ def _marking(fn: Any, ref: Any) -> Any:
     return marked
 
 
-def keep(sim: Any) -> tuple[bool, str]:
+def keep(sim: Any, *, keep_coupled_graphs: bool = False) -> tuple[bool, str]:
     """(keep the period graphs across this reset, why not). Example: ``keep(sim) == (True, "")`` for a robot arm
     scene on MuJoCo Warp whose model nobody changed."""
     if not getattr(sim, "reset_keeps_graphs", True):
@@ -102,11 +104,15 @@ def keep(sim: Any) -> tuple[bool, str]:
     if getattr(sim, "_model_notified", False):
         return False, "the model changed (a solver was notified, or a health setter rebound an array) since capture"
     solvers = tuple(getattr(sim, "solvers", ()))
-    other = sorted({type(s).__name__ for s in solvers} - set(KEPT_SOLVERS))
-    if other:
-        return False, f"entry solver(s) {', '.join(other)}: outside the kept-graph law"
-    if len(solvers) > 1:
-        return False, "more than one entry solver (a coupled scene): outside the kept-graph law for now"
+    names = {type(s).__name__ for s in solvers}
+    sph_pair = (keep_coupled_graphs and len(solvers) == 2 and "SolverDFSPH" in names
+                and bool(names & RIGID_SOLVERS) and type(sim.stepper).__name__ == "Scheduler")
+    if not sph_pair:
+        other = sorted(names - set(KEPT_SOLVERS))
+        if other:
+            return False, f"entry solver(s) {', '.join(other)}: outside the kept-graph law"
+        if len(solvers) > 1:
+            return False, "more than one entry solver (a coupled scene): outside the kept-graph law"
     if type(sim.stepper).__name__ == "SchedulerADMM":
         return False, "the ADMM coupler: outside the kept-graph law"
     if getattr(sim, "plugins", None) is not None:
@@ -116,12 +122,12 @@ def keep(sim: Any) -> tuple[bool, str]:
     return True, ""
 
 
-def after_reset(sim: Any) -> bool:
+def after_reset(sim: Any, *, keep_coupled_graphs: bool = False) -> bool:
     """The end of ``IntegratedSimulation.reset``: keep the period graphs (True) or drop them and the per-key node
     counts, as every reset did before (module docstring). Nothing to do without graphs (the CPU)."""
     if sim._graphs is None:
         return False
-    ok, why = keep(sim)
+    ok, why = keep(sim, keep_coupled_graphs=keep_coupled_graphs)
     counts = sim.reset_graphs
     counts["kept" if ok else "dropped"] += 1
     if ok:

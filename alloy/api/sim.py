@@ -233,14 +233,18 @@ class Sim:
         pushes). Example: ``sim.pushes()["go2/base"]``."""
         return _robot_random_push.forces(self)
 
-    def reset(self) -> Sim:
+    def reset(self, *, keep_coupled_graphs: bool = False) -> Sim:
         """Back to the start state of every world (randomized values are redrawn the same way, except robot and
         gravity rows added with ``when="reset"``, which get a new draw; drives and ``apply_wrench`` loads are removed).
 
+        ``keep_coupled_graphs=True`` requests retaining captured CUDA graphs for an unchanged MuJoCo + SPH scene.
         Example: ``sim.reset()``."""
         self.stop_drives()
         with wrapped("reset", SimulationError), _device(self.device):
-            self.engine.reset()
+            if keep_coupled_graphs:
+                self.engine.reset(keep_coupled_graphs=True)
+            else:
+                self.engine.reset()
             forget_raised(self.engine)             # a reset world may fail, and raise, again
             if self._settled and getattr(self.built, "randomized", None) is not None:
                 # the settled start, with each world's draws (AUDIT-STACK API-1); since TRAIN-FIX 3a the engine's own

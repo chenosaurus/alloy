@@ -125,3 +125,29 @@ def test_a_coupled_scene_still_drops_its_graphs() -> None:
     sim.step(2)
     sim.engine.reset(_mask(2, [1]))
     assert sim.engine.reset_graphs == {"kept": 0, "dropped": 1}
+
+
+def test_opt_in_rigid_liquid_reset_replays_the_same_state():
+    scene = alloy.Scene(dt=.0025)
+    scene.add_open_box("cup", inner=(.036, .036, .05), wall=.004)
+    scene.add_liquid("water", size=(.028, .028, .02), pos=(0, 0, .016))
+    scene.add_sphere("ball", .02, pos=(.5, 0, 1.), mass=.1)
+    kept, dropped = (alloy.build(alloy.Scene.from_dict(scene.to_dict()), device=DEV) for _ in range(2))
+    try:
+        for sim, keep in ((kept, True), (dropped, False)):
+            sim.settle(.025)
+            start = sim.state(["water", "ball"])
+            sim.step(16)
+            sim.reset(keep_coupled_graphs=keep)
+            restored = sim.state(["water", "ball"])
+            for field in start.keys() - {"t"}:
+                np.testing.assert_array_equal(restored[field], start[field])
+            sim.step(16)
+            assert sim.check()["ok"]
+        assert kept.report()["graph"]["reset_kept"] == 1
+        assert dropped.report()["graph"]["reset_dropped"] == 1
+        np.testing.assert_array_equal(kept.state(["water"])["water.points"], dropped.state(["water"])["water.points"])
+        np.testing.assert_array_equal(kept.state(["ball"])["ball.pos"], dropped.state(["ball"])["ball.pos"])
+    finally:
+        kept.close()
+        dropped.close()

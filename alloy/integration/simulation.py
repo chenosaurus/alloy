@@ -433,7 +433,7 @@ class IntegratedSimulation(Simulation):
 
     # --- reset / report --------------------------------------------------------------------------------------
 
-    def reset(self, world_mask: wp.array | None = None) -> None:
+    def reset(self, world_mask: wp.array | None = None, *, keep_coupled_graphs: bool = False) -> None:
         """WP2's reset, with the redraw at the scene's draw seed (``built_copy.draw_seed``: the seed the assembled
         values were drawn at), not at this simulation's ``seed`` (SCR-DC3-8: one seed for assembly and reset)."""
         seed, self.seed = self.seed, draw_seed(self.built)    # WP2's Simulation.reset redraws at self.seed
@@ -450,7 +450,7 @@ class IntegratedSimulation(Simulation):
             self.health.reset_reference(self.state, world_mask)
         if self.latch_log is not None:
             self.latch_log.reset(world_mask)
-        after_reset(self)                                     # the period graphs: kept when safe (reset_graphs)
+        after_reset(self, keep_coupled_graphs=keep_coupled_graphs)
 
     @property
     def host_syncs(self) -> int:
