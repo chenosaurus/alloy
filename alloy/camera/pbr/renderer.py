@@ -188,11 +188,18 @@ class PbrRenderer:
         self.block_dim = int(block_dim)
         self.worlds = np.arange(ps.num_worlds, dtype=np.int32) if worlds is None else np.asarray(worlds, np.int32)
         self.n_img = len(self.worlds)
+        self.cams = self._pack_cameras()
+        self._wavefront_options = wavefront
+        self.rgb = self.albedo = self.normal = None
+        self.wf = None
+
+    def _init_trace(self) -> None:
+        """Allocate tracing data when this view first traces rays."""
+        ps = self.ps
         key = ps.disp.__name__
         if key not in _KERNELS:
             _KERNELS[key] = make_kernel(ps.disp)
         self.kernel = _KERNELS[key]
-        self.cams = self._pack_cameras()
         c = ps.pack.static["settings"]["cycles"]
         self.p2 = ParamsV2()
         self.p2.max_glossy = self.st.glossy_bounces + 1
@@ -208,8 +215,8 @@ class PbrRenderer:
         self.ftab = wp.array(filter_table(self.st.filter_type, self.st.filter_width), dtype=float, device=dev)
         self.sobol = wp.array(SOBOL_BURLEY_TABLE.reshape(-1), dtype=wp.uint32, device=dev)
         n = self.n_img * self.w * self.h
+        self.wf = self._make_wavefront(self._wavefront_options)
         self.rgb, self.albedo, self.normal = (wp.zeros(n, dtype=wp.vec3, device=dev) for _ in range(3))
-        self.wf = self._make_wavefront(wavefront)
 
     def _make_wavefront(self, options):
         """The wavefront renderer when ``settings.backend`` asks for one ("optix", "wavefront-warp", "auto"), else None."""
@@ -247,6 +254,8 @@ class PbrRenderer:
     def render(self, spp: int, sample_offset: int = 0, total_spp: int | None = None,
                seed: int | None = None) -> tuple[wp.array, ...]:
         """(rgb, albedo, normal) means over samples [sample_offset, sample_offset + spp), (n_images, H, W) vec3."""
+        if self.rgb is None:
+            self._init_trace()
         prm = make_params(self.st, self.w, self.h, spp, sample_offset, total_spp or spp, seed)
         ps = self.ps
         if self.wf is not None:

@@ -46,6 +46,7 @@ def test_joined_batch_tracks_each_view_after_body_motion():
     batch = PbrCameraBatch(cameras)
     try:
         before = batch.render(sim)
+        assert all(camera._bound[1].rgb is None for camera in cameras.values())
         sim.set_pose("block", pos=(.25, 0, .1))
         after = batch.render(sim)
         np.testing.assert_array_equal(after["static"], sim.render(cameras["static"]))
