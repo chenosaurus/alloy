@@ -75,8 +75,9 @@ def _grid_shape(lo: np.ndarray, hi: np.ndarray, ok: np.ndarray, cell: float, pad
 class LiquidSurface:
     """The surfaces of one liquid over every world, rebuilt by :meth:`build` (see the module docstring)."""
 
-    def __init__(self, obj: LiquidObject, worlds: int, stride: int, device: str):
+    def __init__(self, obj: LiquidObject, worlds: int, stride: int, device: str, supports=()):
         self.obj, self.worlds, self.stride, self.device = obj, int(worlds), int(stride), str(device)
+        self.supports = wp.array(np.asarray(supports, np.float32).reshape(-1, 2, 3), dtype=wp.vec3, device=device)
         self.tcap = capacity(obj)
         # a closed marching-cubes surface has V = T / 2 + 2 per component (lone drops: one component each)
         self.vcap = self.tcap // 2 + max(4096, 2 * obj.count)
@@ -195,7 +196,8 @@ class LiquidSurface:
             g.blocks.zero_()
             wp.launch(mark_blocks, dim=total, inputs=[sm, self.pworld, self.flag, self.half, g, R], device=dev)
         wp.launch(lk.implicit, dim=self.worlds * g.nn, inputs=[self.hash.id, sm, self.flag, self.an, g, R,
-                                                               RADIUS_DX * o.spacing], outputs=[g.field], device=dev)
+                                                               RADIUS_DX * o.spacing, self.supports],
+                  outputs=[g.field], device=dev)
 
     def _build_grid(self, grid: wp.HashGrid, pts: wp.array, buf: wp.array, cell: float) -> None:
         """Build a float64 hash grid over float32 ``pts`` (via ``buf``; see ``liquid_kernels.to_f64``)."""

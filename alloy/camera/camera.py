@@ -191,8 +191,8 @@ def _model_pbr(model, look, lighting, device: str, items: dict | None = None, la
         from .deform_gpu import DeformSet
         ds = DeformSet(layout, len(frame.meshes) - n_liq - layout.worlds * len(layout.objects), device, model)
     if liquid is not None:
-        from .liquid_scene import LiquidSet
-        ls = LiquidSet(liquid, len(frame.meshes) - n_liq, device, engine)
+        from .liquid_scene import LiquidSet, liquid_supports
+        ls = LiquidSet(liquid, len(frame.meshes) - n_liq, device, engine, liquid_supports(sim, look))
     if films is not None:  # after the deformables and liquids: their first meshes are counted without the films
         from .films import Dynamic, add_to_pack
         binding, fs = add_to_pack(pk, frame, binding, films, device)

@@ -22,7 +22,7 @@ DX = 0.004
 LOOK_AT = ((0.16, -0.16, 0.5), (0.0, 0.0, 0.36))
 
 
-def _surfaces(sets: list, vel: list | None = None):
+def _surfaces(sets: list, vel: list | None = None, *, supports=()):
     """One world per particle set; returns the LiquidSurface after one build."""
     n = max(len(p) for p in sets) + 3
     pq = np.zeros((len(sets), n, 3), np.float32)
@@ -32,7 +32,7 @@ def _surfaces(sets: list, vel: list | None = None):
         pq[w, : len(p)], fl[w, : len(p)] = p, 1
         if vel is not None:
             qd[w, : len(p)] = vel[w]
-    s = LiquidSurface(LiquidObject("water", 0, n, DX), len(sets), n, "cpu")
+    s = LiquidSurface(LiquidObject("water", 0, n, DX), len(sets), n, "cpu", supports)
     arr = lambda a, t: wp.array(a.reshape(-1, *a.shape[2:]), dtype=t, device="cpu")  # noqa: E731
     s.build(arr(pq, wp.vec3), arr(fl, wp.int32), arr(qd, wp.vec3) if vel is not None else None)
     return s
@@ -85,6 +85,21 @@ def test_a_falling_stream_is_one_surface_not_a_stack_of_plates():
     moving = _surfaces([plates], vel=[np.array([0.0, 0.0, -1.5], np.float32)])
     assert _components(*still.mesh(0)[:2]) > 5
     assert _components(*moving.mesh(0)[:2]) == 1
+
+
+def test_a_shallow_spill_draws_a_closed_film_on_its_support():
+    xy = np.arange(-6, 7) * DX
+    spill = np.array([(x, y, 0.5 * DX) for x in xy for y in xy])
+    airborne = spill + (0., 0., 0.02)
+    baseline = _surfaces([spill, airborne])
+    result = _surfaces([spill, airborne], supports=[((-.1, -.1, 0.), (.1, .1, 0.))])
+    vertices, faces, _ = result.mesh(0)
+    assert 0.0 < vertices[:, 2].max() < baseline.mesh(0)[0][:, 2].max() * 0.6
+    assert vertices[:, 2].min() > -0.4 * DX
+    edges = {tuple(e) for e in np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])}
+    assert all((b, a) in edges for a, b in edges)
+    for a, b in zip(result.mesh(1), baseline.mesh(1)):
+        np.testing.assert_array_equal(a, b)
 
 
 def test_the_field_near_the_particles_only_keeps_every_bit(monkeypatch):

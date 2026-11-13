@@ -113,12 +113,34 @@ class DeviceFlags:
         return self.buf
 
 
+def liquid_supports(sim, look) -> list[tuple]:
+    """Top faces of the static, axis-aligned boxes named in the camera look."""
+    from .item_looks import scene_of
+    from .model_pack import _load_look
+
+    names = _load_look(look).get("liquid_supports", ())
+    scene = scene_of(sim)
+    supports = []
+    for name in names:
+        item = scene.items.get(name, {}) if scene is not None else {}
+        shape = item.get("shape", {}).get("primitive", {})
+        pose = item.get("pose")
+        if (not item.get("static") or shape.get("kind") != "box" or pose is None
+                or not np.allclose(pose[3:], (0., 0., 0., 1.))):
+            raise CameraError(f"liquid support {name!r} is not a static axis-aligned box",
+                              "name the box or fixture floor in the camera look's liquid_supports")
+        x, y, z = pose[:3]
+        dx, dy, dz = shape["size"]
+        supports.append(((x - dx, y - dy, z + dz), (x + dx, y + dy, z + dz)))
+    return supports
+
+
 class LiquidSet:
     """The liquids of one camera scene: world w's mesh of liquid o is scene mesh ``first[o] + w``."""
 
-    def __init__(self, layout: LiquidLayout, first_mesh: int, device: str, engine):
+    def __init__(self, layout: LiquidLayout, first_mesh: int, device: str, engine, supports=()):
         self.layout, self.device = layout, str(device)
-        self.surfaces = [LiquidSurface(o, layout.worlds, layout.stride, self.device) for o in layout.objects]
+        self.surfaces = [LiquidSurface(o, layout.worlds, layout.stride, self.device, supports) for o in layout.objects]
         self.first = [int(first_mesh) + i * layout.worlds for i in range(len(layout.objects))]
         self.flags = DeviceFlags(engine)
         self.n_particles = int(engine.model.particle_q.shape[0])

@@ -209,7 +209,7 @@ class Aniso:
 
 @wp.kernel(enable_backward=False)
 def implicit(grid: wp.uint64, pts: wp.array(dtype=wp.vec3), flag: wp.array(dtype=wp.int32), an: Aniso, g: Grid,
-             radius: float, r0: float, field: wp.array(dtype=float)):
+             radius: float, r0: float, supports: wp.array2d(dtype=wp.vec3), field: wp.array(dtype=float)):
     i = wp.tid()
     c = unravel(g, i)
     b = ((c[0] * g.nbx + (c[1] >> g.bshift)) * g.nby + (c[2] >> g.bshift)) * g.nbz + (c[3] >> g.bshift)
@@ -245,10 +245,32 @@ def implicit(grid: wp.uint64, pts: wp.array(dtype=wp.vec3), flag: wp.array(dtype
                 sw += k
                 sr += k * r0
                 sx += p * k
-    phi = radius
+    value = -radius
     if sw > 0.0:
-        phi = wp.length(x - sx / sw) - sr / sw
-    field[i] = -phi
+        centre = sx / sw
+        delta = x - centre
+        value = sr / sw - wp.length(delta)
+        if supports.shape[0] > 0:
+            p = x - g.tile[c[0]] + g.lo[c[0]]
+            centre_z = p[2] - delta[2]
+            floor = float(-FAR)
+            for j in range(supports.shape[0]):
+                lo = supports[j, 0]
+                hi = supports[j, 1]
+                if (lo[0] <= p[0] and p[0] <= hi[0] and lo[1] <= p[1] and p[1] <= hi[1]
+                        and centre_z >= hi[2] - 0.1 * r0 and centre_z < hi[2] + r0):
+                    floor = wp.max(floor, hi[2])
+            if floor > -FAR:
+                # A shallow layer has a broad, flat top and a curved meniscus at its edge.
+                # Keep its lower surface just behind the solid so rays hit the wet support.
+                height = p[2] - floor
+                radial_sq = (delta[0] * delta[0] + delta[1] * delta[1]) / (r0 * r0)
+                vertical = (height - 0.15 * r0) / (0.5 * r0)
+                film = r0 * (1.0 - wp.sqrt(radial_sq * radial_sq + vertical * vertical))
+                blend = wp.clamp((floor + r0 - centre_z) / (0.4 * r0), 0.0, 1.0)
+                blend = blend * blend * (3.0 - 2.0 * blend)
+                value = wp.min(wp.lerp(value, film, blend), height + 0.25 * r0)
+    field[i] = value
 
 
 # ---------------------------------------------------------------- marching cubes
