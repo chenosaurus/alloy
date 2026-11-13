@@ -32,7 +32,7 @@ _EXPORTS = {
     "load_pack": "camera", "CameraError": "errors", "DenoiseSpec": "denoise", "image_extent": "pose",
     "look_at": "pose", "Lighting": "scene", "MeshGeom": "scene", "SceneData": "scene", "Sun": "scene",
     "TactileRenderer": "tactile", "TactileSensor": "tactile", "TexturedMesh": "meshes", "mesh_scene": "meshes",
-    "model_scene": "meshes", "RenderSettings": "settings", "render": "still", "snapshot": "still",
+    "model_scene": "meshes", "RenderSettings": "settings", "render": "still", "render_cameras": "still", "snapshot": "still",
     "to_display": "view", "write_png": "view",
 }
 __all__ = sorted(_EXPORTS)

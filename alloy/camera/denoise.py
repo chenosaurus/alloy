@@ -118,9 +118,12 @@ class OidnAdapter:
         self._out = None
 
     def __call__(self, rgb: wp.array, albedo: wp.array, normal: wp.array, spp: int) -> wp.array:
+        return self.enqueue(rgb, albedo, normal)()
+
+    def enqueue(self, rgb: wp.array, albedo: wp.array, normal: wp.array):
         if self._out is None or self._out.shape != rgb.shape:
             self._out = wp.empty(rgb.shape, dtype=wp.vec3, device=rgb.device)
-        return self.dn.denoise(rgb, albedo, normal, self._out)
+        return self.dn._enqueue(rgb, albedo, normal, self._out)
 
 
 _SAID: set[str] = set()

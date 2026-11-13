@@ -266,7 +266,8 @@ class Camera:
         """``denoise``: None, "auto", "learned", "oidn" or a :class:`~alloy.camera.denoise.DenoiseSpec` (weights,
         tta); "auto" lets 4-8 spp look like hundreds of samples. ``backend``: "warp", "optix", "auto" or
         "wavefront-warp" (see :class:`RenderSettings`); None keeps the settings' own (``ALLOY_CAMERA_BACKEND``, else
-        "warp"). ``look`` and ``quality`` select the materials and lights for this live camera."""
+        "warp"). ``look`` and ``quality`` select the same materials and lights as a snapshot,
+        while retaining this camera's render buffers between frames."""
         if pose is not None and look_at is not None:
             raise CameraError("both pose and look_at given", "pass one of them")
         if int(spp) < 1:
@@ -304,52 +305,76 @@ class Camera:
         H, W), from the pixel-centre ray with no colour traced; a tuple such as ``("rgb", "depth")`` a
         :class:`CameraOutput` with those too (``alloy.camera.aov``; fast camera only).
         """
+        return self._render(source, state, output, exposure, seed, prepared=set())
+
+    def _render(self, source, state, output, exposure, seed, *, prepared, defer=False):
         from .aov import keep_fields, parse_output, render_aovs
         want = parse_output(output, OUTPUTS)  # None: a colour-only output, the unchanged path
-        _not_capturing(source, self.name)
-        from .item_looks import items_look
-        items = items_look(source)
-        sim = source
-        source, state = unwrap_sim(source, state)
-        sc, r = self._bind(sim, items)
-        dyn = _dynamic(sc)
-        if any(d.stale() for d in dyn):
-            log.warning("camera %s: the deformables' topology changed (cut or torn); rebuilding the scene", self.name)
-            _forget(sc)
-            sc, r = self._bind(sim, items)
-            dyn = _dynamic(sc)
-        if state is not None:
-            for d in dyn:
-                d.update(state)  # before the top-level refit below
-        sc.update(getattr(state, "body_q", None) if state is not None else None)
-        if self._dirty:
-            self._upload_pose(r)
-        if self._attached:
-            self._attach(state)
+        sc, r = self._prepare(source, state, prepared)
         aovs = render_aovs(r, want.aovs) if want is not None else {}
         if want is not None and not want.color:
             return aovs[want.aovs[0]] if want.single else CameraOutput(None, **aovs)
         noisy, alb, nrm = r.render(self.spp, seed=seed)
+        if defer:
+            from .denoise import OidnAdapter
+            denoiser = self._get_denoiser(r)
+            if isinstance(denoiser, OidnAdapter):
+                finish = denoiser.enqueue(noisy, alb, nrm)
+                return lambda: self._display(sc, finish(), exposure)
+            rgb = denoiser(noisy, alb, nrm, self.spp) if denoiser else noisy
+            return lambda: self._display(sc, rgb, exposure)
         rgb = self._denoised(noisy, alb, nrm, r)
         if output == "linear":
             return rgb
-        view = scene_view(sc)
-        disp = to_display(rgb, exposure, view=view)
-        if self._clip_check:
-            self._clip_check = False
-            _warn_if_clipped(disp, self.name, exposure + view.exposure, view)
+        disp = self._display(sc, rgb, exposure)
         if output == "uint8":
             return disp
         out = CameraOutput(disp, rgb, alb, nrm, noisy, **aovs)
         return out if want is None else keep_fields(out, want.names)
 
+    def _prepare(self, source, state, prepared):
+        _not_capturing(source, self.name)
+        from .item_looks import items_look
+        items = items_look(source)
+        _, state = unwrap_sim(source, state)
+        sc, r = self._bind(source, items)
+        if sc not in prepared:
+            dyn = _dynamic(sc)
+            if any(d.stale() for d in dyn):
+                log.warning("camera %s: the deformables' topology changed (cut or torn); rebuilding the scene", self.name)
+                _forget(sc)
+                sc, r = self._bind(source, items)
+                dyn = _dynamic(sc)
+            if state is not None:
+                for d in dyn:
+                    d.update(state)  # before the top-level refit below
+            sc.update(getattr(state, "body_q", None))
+            prepared.add(sc)
+        if self._dirty:
+            self._upload_pose(r)
+        if self._attached:
+            self._attach(state)
+        return sc, r
+
+    def _display(self, sc, rgb, exposure):
+        view = scene_view(sc)
+        disp = to_display(rgb, exposure, view=view)
+        if self._clip_check:
+            self._clip_check = False
+            _warn_if_clipped(disp, self.name, exposure + view.exposure, view)
+        return disp
+
     def _denoised(self, rgb: wp.array, alb: wp.array, nrm: wp.array, r) -> wp.array:
+        denoiser = self._get_denoiser(r)
+        return denoiser(rgb, alb, nrm, self.spp) if denoiser else rgb
+
+    def _get_denoiser(self, r):
         if self.denoise.kind in (None, "off"):
-            return rgb
+            return None
         if self._denoiser is None:
             from .denoise import make_denoiser
             self._denoiser = make_denoiser(self.denoise, self.width, self.height, r.sc.device) or False
-        return self._denoiser(rgb, alb, nrm, self.spp) if self._denoiser else rgb
+        return self._denoiser
 
     def render_torch(self, source, state=None, output: str = "uint8", **kw):
         """Same as :meth:`render`, as a torch tensor on the same device (needs PyTorch); a tuple ``output`` gives a

@@ -108,6 +108,7 @@ class _Chain:
         lib.oidnSetFilterBool(main, b"srgb", False)
         lib.oidnSetFilterBool(main, b"cleanAux", True)
         self.bufs: dict = {}
+        self._binding = None
 
     def _filter(self, quality: str):
         f = self.lib.oidnNewFilter(self.dev, b"RT")
@@ -130,16 +131,20 @@ class _Chain:
 
     def run(self, w: int, h: int, ptrs: list[int], nbytes: int, off: int) -> None:
         """ptrs = (colour, albedo, normal, out, clean albedo, clean normal); one image at byte offset ``off``."""
-        c, a, n, o, sa, sn = ptrs
-        for f, nm, src, dst in ((self.filters[0], b"albedo", a, sa), (self.filters[1], b"normal", n, sn)):
-            self._bind(f, nm, src, nbytes, off, w, h)
-            self._bind(f, b"output", dst, nbytes, off, w, h)
-            self.lib.oidnCommitFilter(f)
+        binding = (w, h, tuple(ptrs), nbytes, off)
+        if binding != self._binding:
+            c, a, n, o, sa, sn = ptrs
+            for f, nm, src, dst in ((self.filters[0], b"albedo", a, sa), (self.filters[1], b"normal", n, sn)):
+                self._bind(f, nm, src, nbytes, off, w, h)
+                self._bind(f, b"output", dst, nbytes, off, w, h)
+                self.lib.oidnCommitFilter(f)
+            for nm, p in ((b"color", c), (b"albedo", sa), (b"normal", sn), (b"output", o)):
+                self._bind(self.filters[2], nm, p, nbytes, off, w, h)
+            self.lib.oidnCommitFilter(self.filters[2])
+            self.check()
+            self._binding = binding
+        for f in self.filters:
             self.lib.oidnExecuteFilterAsync(f)
-        for nm, p in ((b"color", c), (b"albedo", sa), (b"normal", sn), (b"output", o)):
-            self._bind(self.filters[2], nm, p, nbytes, off, w, h)
-        self.lib.oidnCommitFilter(self.filters[2])
-        self.lib.oidnExecuteFilterAsync(self.filters[2])
 
     def sync(self) -> None:
         self.lib.oidnSyncDevice(self.dev)
@@ -175,6 +180,10 @@ class OidnDenoiser:
 
     def denoise(self, rgb: wp.array, albedo: wp.array, normal: wp.array, out: wp.array | None = None) -> wp.array:
         """Denoised linear colour, (N, H, W) vec3 like the inputs (rows top first)."""
+        return self._enqueue(rgb, albedo, normal, out)()
+
+    def _enqueue(self, rgb: wp.array, albedo: wp.array, normal: wp.array, out: wp.array | None = None):
+        """Start work on OIDN's streams. Finish before reusing this denoiser's scratch space."""
         n = rgb.shape[0]
         if tuple(rgb.shape) != (n, self.h, self.w):
             raise CameraError(f"OIDN input shape {tuple(rgb.shape)}", f"pass (N, {self.h}, {self.w}) vec3 arrays")
@@ -188,13 +197,23 @@ class OidnDenoiser:
             s.wait_event(ev)
         ptrs = [int(a.ptr) for a in (*flipped, res, ca, cn)]
         img = self.h * self.w * 12
-        for i in range(n):
-            self.chains[i % len(self.chains)].run(self.w, self.h, ptrs, n * img, i * img)
-        for c in self.chains:
-            c.sync()
         out = out if out is not None else wp.empty((n, self.h, self.w), dtype=wp.vec3, device=self.device)
-        wp.launch(_flip_rows, dim=(n, self.h, self.w), inputs=[res], outputs=[out], device=self.device)
-        return out
+        used = self.chains[:n]
+        try:
+            for i in range(n):
+                used[i % len(used)].run(self.w, self.h, ptrs, n * img, i * img)
+        except BaseException:
+            for c in used:
+                c.sync()
+            raise
+
+        def finish():
+            for c in used:
+                c.sync()
+            wp.launch(_flip_rows, dim=(n, self.h, self.w), inputs=[res], outputs=[out], device=self.device)
+            return out
+
+        return finish
 
     def close(self) -> None:
         for c in self.chains:

@@ -9,13 +9,38 @@ Example::
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 
 import numpy as np
 
-from .camera import Camera, camera_scene
+from .camera import Camera, camera_scene, unwrap_sim
 from .tracer.renderer import Renderer
 from .view import write_png
+
+
+def render_cameras(source, cameras: Mapping[str, Camera]) -> dict[str, np.ndarray]:
+    """Render named cameras at the same simulation state, refitting each shared scene once.
+
+    Each image has shape (worlds, H, W, 3), as with ``sim.render(camera)``. Cameras can
+    use different poses or looks. Do not step or modify the simulation during the batch.
+    """
+    _, state = unwrap_sim(source)
+    prepared = set()
+    pending = {}
+    images = {}
+    try:
+        for cam in dict.fromkeys(cameras.values()):
+            pending[cam] = cam._render(source, state, "uint8", 0.0, None, prepared=prepared, defer=True)
+        for cam in dict.fromkeys(cameras.values()):
+            images[cam] = pending.pop(cam)().numpy()
+    finally:
+        # Drain work from cameras already submitted if a later camera raises.
+        for finish in pending.values():
+            with suppress(Exception):
+                finish()
+    return {name: images[cam] for name, cam in cameras.items()}
 
 
 def snapshot(model, state=None, path: str | Path | None = None, look_at=None, pose=None, width: int = 640,

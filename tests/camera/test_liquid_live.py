@@ -11,7 +11,7 @@ import pytest
 import warp as wp
 
 import alloy
-from alloy.camera import Camera
+from alloy.camera import Camera, render_cameras
 from alloy.camera.camera import _forget, camera_scene
 from alloy.camera.liquid_gpu import LiquidObject, LiquidSurface
 from alloy.camera.liquid_looks import LN10_PER_CM, fast_color, liquid_key, liquid_material
@@ -145,6 +145,31 @@ def test_the_pour_is_drawn_live_exactly_as_a_fresh_scene(pour_sim):
     _forget(gs)
     fresh = Camera("c", look_at=LOOK_AT, width=32, height=32, spp=2).render(pour_sim).numpy()
     assert np.array_equal(live, fresh)
+
+
+def test_camera_batch_rebuilds_liquid_once_at_each_state(pour_sim, monkeypatch):
+    cameras = {
+        "front": Camera("front", look_at=LOOK_AT, width=32, height=24, spp=2),
+        "side": Camera("side", look_at=((-0.16, -0.16, 0.5), LOOK_AT[1]), width=24, height=24, spp=2),
+    }
+    liquid = camera_scene(pour_sim, device="cpu").liquid
+    update = liquid.update
+    rebuilds = []
+
+    def count_update(state):
+        rebuilds.append(pour_sim.t)
+        update(state)
+
+    monkeypatch.setattr(liquid, "update", count_update)
+    initial = render_cameras(pour_sim, cameras)
+    assert rebuilds == [pour_sim.t]
+    pour_sim.step(4)
+    rebuilds.clear()
+    current = render_cameras(pour_sim, cameras)
+    assert rebuilds == [pour_sim.t]
+    for name, camera in cameras.items():
+        np.testing.assert_array_equal(current[name], pour_sim.render(camera))
+        assert np.any(current[name] != initial[name])
 
 
 def test_a_sim_pack_carries_the_liquid_surface_with_its_look(pour_sim, tmp_path):
