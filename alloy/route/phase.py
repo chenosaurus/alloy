@@ -115,6 +115,9 @@ def _liquid(cfg: RouterConfig, obj: ResolvedObject, ctx: SceneContext, p: _Path,
     n = ck.sph_particle_count(_volume(obj), r)
     p.numbers.update(particle_radius=r, n_particles=float(n), viscosity_weiler=float(mu > cfg.sph_viscous_above),
                      rest_jitter_speed=SPH_REST_JITTER_SPEED, liquid_spacing=spacing)
+    if cfg.liquid_cfl is not None:
+        p.numbers["liquid_cfl"] = cfg.liquid_cfl
+        p.reasons.append(f"SPH travel limit: {cfg.liquid_cfl:g} particle spacings per step")
     if passage is not None:
         p.numbers["passage_width"] = float(passage)      # the build warns under 8 particles across (_liquid_accuracy)
     if n > obj.card.budget.particles:

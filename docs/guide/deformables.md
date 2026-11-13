@@ -300,6 +300,9 @@ round cup is not at rest (its corners stick out), collapses and jets over the ri
     (`docs/known_gaps/liquid-narrow-containers.md`).
   - Saved cards (`scene.save()`) don't keep the setting; Scene JSON (`scene.to_json()`) does. On a scene loaded from
     cards, set `scene.liquid_accuracy = "super"` again.
+- `alloy.Scene(liquid_cfl=0.4)` allows up to 0.4 particle spacings of travel per SPH step in the fluid clock
+  estimate. The default is 0.2. This can use fewer substeps in a splash, with coarser time resolution. Particle
+  spacing and pressure tolerances are set independently. Scene JSON keeps the value, and `sim.routes()` reports it.
 - `sim.liquid_volume(name)`: the simulated volume in m³. Whole particles fill the box, so it can be a few percent
   below the box volume; enlarge the box for an exact amount.
 - `sim.particle_volume(name)`: the volume one particle stands for. Liquid in a region = particles inside it times

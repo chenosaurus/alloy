@@ -56,6 +56,7 @@ class RouterConfig:
     pile_threshold: int = 50               # free bodies per world
     pile_backend: Literal["mujoco", "kamino", "steel"] = "mujoco"
     near_boundary_log10: float = 0.3       # within 2x of a threshold
+    liquid_cfl: float | None = None        # optional SPH travel limit, in particle spacings per step
 
 
 @dataclass(frozen=True)

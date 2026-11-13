@@ -254,7 +254,11 @@ def sph_kwargs(objs: Sequence[TemplateObject]) -> dict[str, object]:
     if len(set(radii.values())) > 1:
         raise AssemblyError(f"SPH entry: liquids routed at different particle radii {radii}; one SolverDFSPH runs one "
                             "radius (give the cards one passage width, or split the liquids)")
-    return {"particle_radius": next(iter(radii.values()))}
+    kw = {"particle_radius": next(iter(radii.values()))}
+    cfl = next((t.decision.numbers["liquid_cfl"] for t in objs if "liquid_cfl" in t.decision.numbers), None)
+    if cfl is not None:
+        kw["cfl"] = cfl
+    return kw
 
 
 def max_substeps(entry: str, coupled: bool, has_precision: bool) -> int:

@@ -165,3 +165,18 @@ def test_a_pour_at_super_delivers_its_volume_into_the_cup(caplog):
     assert sim.check()["ok"] and traj.meta["liquid_accuracy"] == "super"
     assert sc.items["water"]["pour"]["volume"] == pytest.approx(8e-6, rel=1e-9, abs=0)  # the user's scene untouched
     sim.close()
+
+
+def test_liquid_cfl_round_trips_and_reaches_sph():
+    scene = _cup_scene("default", 0.02)
+    assert scene.liquid_cfl is None
+    assert "liquid_cfl" not in scene.to_dict()
+    for bad in (0.0, -0.1, 1.1, float("inf")):
+        with pytest.raises(SceneError, match="liquid_cfl"):
+            scene.liquid_cfl = bad
+    scene.liquid_cfl = 0.4
+    restored = alloy.Scene.from_dict(scene.to_dict())
+    assert restored.liquid_cfl == 0.4
+    with alloy.build(restored, device="cpu") as sim:
+        assert "SPH travel limit: 0.4" in " ".join(sim.routes()["water"]["reasons"])
+        assert sim.built.entries[0].solver_kwargs["cfl"] == 0.4

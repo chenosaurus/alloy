@@ -48,16 +48,19 @@ class Scene(FixtureMixin, HeatMixin, JointYieldMixin, _rigid_step.RigidStepMixin
     own card folders (``materials/``, ``objects/``, ...: e.g. cards made by ``alloy.create`` or ``alloy.io``),
     searched before the shipped and imported libraries; ``liquid_accuracy``: "default" (liquid particles 4 mm apart)
     or "super" (2 mm, about 16x the cost) or "fast" (6 mm for demos);
+    ``liquid_cfl`` optionally sets the maximum SPH travel per step as a fraction of the particle spacing;
     ``cloth_accuracy``: "default", "super" (nearer convergence, 1.4x the cloth cost) or "fast" (the cloth solver's own
     10 iterations, 0.4x the default's cloth cost, CPU 0.25x; a drape stretches 12 %); soft bodies use it too. Example:
     ``s = alloy.Scene(worlds=64); s.add_ground(); s.add_sphere("ball", 0.05, pos=(0, 0, 0.3))``."""
 
     def __init__(self, *, worlds: int = 1, dt: float = 0.01, roots: Sequence[str | Path] = (),
-                 liquid_accuracy: str = "default", cloth_accuracy: str = "default") -> None:
+                 liquid_accuracy: str = "default", cloth_accuracy: str = "default",
+                 liquid_cfl: float | None = None) -> None:
         if not isinstance(worlds, int) or worlds < 1:
             raise SceneError(f"worlds must be an int >= 1, got {worlds!r}", "pass worlds=1 (or more)", field="worlds")
         self.worlds, self.dt = worlds, A.positive(dt, "dt", "s")
-        self.liquid_accuracy = liquid_accuracy           # SPH spacing 4 mm, or 2 mm "super" (checked: the property)
+        self.liquid_accuracy = liquid_accuracy
+        self.liquid_cfl = liquid_cfl
         self.cloth_accuracy = cloth_accuracy             # the VBD entry's solve (alloy.scene.cloth_accuracy)
         self.items: dict[str, dict[str, Any]] = {}   # name -> one placed object / robot (plain data)
         self.materials: dict[str, dict[str, Any]] = {}   # custom material cards (data)
@@ -77,6 +80,19 @@ class Scene(FixtureMixin, HeatMixin, JointYieldMixin, _rigid_step.RigidStepMixin
     @liquid_accuracy.setter
     def liquid_accuracy(self, value: str) -> None:
         self._liquid_accuracy = _liquid_accuracy.checked(value)     # a bad value fails here, not at build
+
+    @property
+    def liquid_cfl(self) -> float | None:
+        """SPH travel limit as a fraction of particle spacing. None uses the solver's default (0.2)."""
+        return self._liquid_cfl
+
+    @liquid_cfl.setter
+    def liquid_cfl(self, value: float | None) -> None:
+        if value is not None:
+            value = A.positive(value, "liquid_cfl", "particle spacings")
+            if value > 1:
+                raise SceneError("liquid_cfl must be <= 1", "pass a value in (0, 1]", field="liquid_cfl")
+        self._liquid_cfl = value
 
     cloth_accuracy = CA.scene_property(SceneError)   # "default" / "super" / "fast" (alloy.scene.cloth_accuracy)
 
@@ -416,6 +432,7 @@ class Scene(FixtureMixin, HeatMixin, JointYieldMixin, _rigid_step.RigidStepMixin
                 "materials": copy.deepcopy(self.materials), "pairs": copy.deepcopy(self.pairs),
                 "roots": list(self.roots), "extra": copy.deepcopy(self.extra), "thermal": copy.deepcopy(self.thermal),
                 **_liquid_accuracy.saved(self.liquid_accuracy), **_rigid_step.saved(self.rigid_step),
+                **({"liquid_cfl": self.liquid_cfl} if self.liquid_cfl is not None else {}),
                 **({"joint_yield": copy.deepcopy(self.joint_yield)} if self.joint_yield else {}),
                 **({"robot_random": copy.deepcopy(self.robot_random)} if self.robot_random else {}),
                 **({"pushes": copy.deepcopy(self.pushes)} if self.pushes else {}),
@@ -429,7 +446,7 @@ class Scene(FixtureMixin, HeatMixin, JointYieldMixin, _rigid_step.RigidStepMixin
                              "Scene.to_dict()", field="schema")
         scene = cls(worlds=int(data["worlds"]), dt=float(data["dt"]),
                     liquid_accuracy=data.get("liquid_accuracy", "default"),
-                    cloth_accuracy=data.get("cloth_accuracy", "default"))
+                    cloth_accuracy=data.get("cloth_accuracy", "default"), liquid_cfl=data.get("liquid_cfl"))
         scene.items, scene.materials = copy.deepcopy(data["items"]), copy.deepcopy(data["materials"])
         scene.pairs, scene.roots = copy.deepcopy(data["pairs"]), list(data.get("roots", []))
         scene.extra = copy.deepcopy(data.get("extra", {}))

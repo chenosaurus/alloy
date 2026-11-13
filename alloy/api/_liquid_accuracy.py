@@ -171,7 +171,8 @@ def router_for(scene: Any) -> Any:
     from alloy.scene import cloth_accuracy  # noqa: PLC0415
 
     cloth = cloth_accuracy.checked(getattr(scene, "cloth_accuracy", "default"), SceneError)
-    return Router(RouterConfig(liquid_accuracy=checked(scene.liquid_accuracy), cloth_accuracy=cloth))
+    return Router(RouterConfig(liquid_accuracy=checked(scene.liquid_accuracy), cloth_accuracy=cloth,
+                               liquid_cfl=getattr(scene, "liquid_cfl", None)))
 
 
 __all__ = ["ACCURACY", "Coarse", "OPENING_ACROSS", "OPENING_MIN", "SPACING", "STREAM_ACROSS", "built_spacing",
