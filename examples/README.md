@@ -47,6 +47,11 @@ python examples/api/01_drop_box.py          # GPU if present, else CPU; the firs
 | [`13_scene_variants.py`](basics/13_scene_variants.py) | Scene variants: four copies of one table scene with the free objects moved and each look given another texture of its family (``alloy.vary``), then one variant built and run like any scene. |
 | [`14_fetch_objects.py`](basics/14_fetch_objects.py) | Fetch objects from Alloy's object library on the Hugging Face Hub, then drop them on a table. |
 
+## LiveKit
+
+[Dual-arm Portal workbench](livekit/README.md) streams three synchronized cameras and accepts joint targets.
+The [shared scene and rig](scenes/yam_workbench/README.md) can also be used without Portal.
+
 ## camera
 
 | Example | What it shows |
