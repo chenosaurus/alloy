@@ -195,7 +195,75 @@ def _build_local_kernel(
     count[i] = n
 
 
+@wp.func_native("""
+#if defined(__CUDA_ARCH__)
+    return __ffs(static_cast<int>(bits)) - 1;
+#else
+    int first = 0;
+    while ((bits & 1u) == 0u) {
+        bits >>= 1u;
+        ++first;
+    }
+    return first;
+#endif
+""")
+def _first_set(bits: wp.uint32) -> int: ...
+
+
+@wp.kernel(enable_backward=False)
+def _build_small_world_kernel(
+    grid: wp.uint64,
+    q: wp.array[wp.vec3],
+    group: wp.array[wp.int32],
+    world_start: wp.array[wp.int32],
+    h: float,
+    cap: int,
+    nbr: wp.array2d[wp.uint16],
+    masks: wp.array2d[wp.uint32],
+    count: wp.array[wp.int32],
+    overflow_world: wp.array[wp.int32],
+):
+    """Collect neighbours in a bitset and write their IDs in ascending order."""
+    i = wp.hash_grid_point_id(grid, wp.tid())
+    g = group[i]
+    if g < 0:
+        count[i] = 0
+        return
+    base = world_start[g]
+    xi = q[i]
+    h2 = h * h
+    query = wp.hash_grid_query(grid, xi, h, g)
+    j = int(0)
+    total = int(0)
+    first = masks.shape[0]
+    last = int(-1)
+    while wp.hash_grid_query_next(query, j):
+        if j != i:
+            d = q[j] - xi
+            if wp.dot(d, d) < h2:
+                offset = j - base
+                word = offset >> 5
+                masks[word, i] = masks[word, i] | (wp.uint32(1) << wp.uint32(offset & 31))
+                first = wp.min(first, word)
+                last = wp.max(last, word)
+                total += 1
+    n = int(0)
+    for word in range(first, last + 1):
+        bits = masks[word, i]
+        while bits != wp.uint32(0) and n < cap:
+            nbr[n, i] = wp.uint16(32 * word + _first_set(bits))
+            bits = bits & (bits - wp.uint32(1))
+            n += 1
+        if n >= cap:
+            break
+    if total > cap:
+        wp.atomic_add(overflow_world, g, 1)
+    count[i] = n
+
+
 LOCAL_LIMIT = 65536  # particles per world the uint16 offsets cover; above it the high byte is used
+SMALL_WORLD_LIMIT = 4096
+MASK_WORD_BUDGET = 1 << 20  # bound the CUDA neighbour scratch space to 4 MiB
 
 
 class NeighborLists:
@@ -218,16 +286,22 @@ class NeighborLists:
         self.desc = GridDescriptor(self.grid)    # graph replays keep this grid's descriptor (grid_descriptor.py)
         rows = max(n_particles, 1)
         self.local = world_start is not None
+        self.masks = None
         if self.local:
             ws = np.asarray(world_start, dtype=np.int64)
-            self.wide = int(len(ws) > 1 and int(np.max(np.diff(ws))) > int(local_limit))
+            max_world = int(np.max(np.diff(ws))) if len(ws) > 1 else 0
+            self.wide = int(max_world > int(local_limit))
             self.nbr = wp.zeros((capacity, rows), dtype=wp.uint16, device=device)
             self.hi = wp.zeros((capacity, rows) if self.wide else (1, 1), dtype=wp.uint8, device=device)
             self.base = wp.array(ws[:-1].astype(np.int32) if len(ws) > 1 else np.zeros(1, np.int32), dtype=wp.int32,
                                  device=device)
             if self.wide:
                 log.info("NeighborLists: a world has %d particles (> %d): 24-bit local offsets",
-                         int(np.max(np.diff(ws))), local_limit)
+                         max_world, local_limit)
+            words = (max_world + 31) // 32
+            if (device.is_cuda and not self.wide and skin <= 0.0 and 0 < max_world <= SMALL_WORLD_LIMIT
+                    and words * rows <= MASK_WORD_BUDGET):
+                self.masks = wp.empty((words, rows), dtype=wp.uint32, device=device)
         else:
             self.wide = 0
             self.nbr = wp.zeros((rows, capacity), dtype=wp.int32, device=device)
@@ -270,6 +344,12 @@ class NeighborLists:
             self.skin.update(self, q, world, overflow_world)
             return
         self.desc.build(q, self.h, groups=self.group)
+        if self.masks is not None:
+            self.masks.zero_()
+            wp.launch(_build_small_world_kernel, dim=self.n,
+                      inputs=[self.grid.id, q, self.group, self.base, self.h, self.capacity, self.nbr,
+                              self.masks, self.count, overflow_world], device=self.device)
+            return
         if self.local:
             ins = [self.grid.id, q, self.group, self.base, self.h, self.capacity, self.nbr, self.hi, self.wide,
                    self.count, overflow_world]
