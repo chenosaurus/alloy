@@ -1,12 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate the glass mug with a loop handle and its rigid collision hulls."""
-from pathlib import Path
-
 import numpy as np
 from scipy.spatial import ConvexHull
 
 from alloy.importers.common.objio import hulls_obj_text, mesh_obj_text, read_hulls_obj, sha256_bytes
-from .glassware import DEPTH, RADIUS, WALL, cup_mesh
+from alloy.workbench.glassware import ASSETS, DEPTH, RADIUS, WALL, cup_mesh
 
 
 def convex_part(points):
@@ -20,7 +18,7 @@ def convex_part(points):
 
 
 def main():
-    assets = Path(__file__).with_name("assets")
+    assets = ASSETS
     segments = 96
     vertices, faces = cup_mesh(segments)
     vertices = vertices.tolist()

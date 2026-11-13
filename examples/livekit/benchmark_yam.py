@@ -6,7 +6,8 @@ from pathlib import Path
 from statistics import median
 import time
 
-from .yam_portal import Simulation
+from alloy.workbench import ROOT
+from alloy.workbench.simulation import Simulation
 
 
 def measure(fn, repeats):
@@ -50,7 +51,7 @@ def main():
     parser.add_argument('--rig', type=Path)
     parser.add_argument('--camera-backend', default='warp', choices=('warp', 'optix', 'wavefront-warp'))
     parser.add_argument('--render-quality', choices=('auto', 'fast', 'full'), default='auto')
-    parser.add_argument('--look', type=Path, default=Path(__file__).resolve().parents[1] / 'scenes/yam_workbench/workbench.look.json')
+    parser.add_argument('--look', type=Path, default=ROOT / 'workbench.look.json')
     parser.add_argument('--width', type=int, default=320)
     parser.add_argument('--height', type=int, default=240)
     parser.add_argument('--spp', type=int, nargs='+', default=[1, 4, 8, 16])

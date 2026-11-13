@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 
 import alloy
 
-from examples.scenes.yam_workbench import FIELDS, ROOT, VIDEOS, Rig, add_workbench, glassware
+from alloy.workbench import FIELDS, ROOT, VIDEOS, Rig, add_workbench, glassware
 
 
 def test_rig_loads_a_model_relative_to_its_profile(tmp_path):

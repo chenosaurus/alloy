@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate the workbench's dished spoon and its collision hulls."""
-from pathlib import Path
-
 import numpy as np
 from scipy.interpolate import PchipInterpolator
 
 from alloy.importers.common.objio import hulls_obj_text, mesh_obj_text, sha256_bytes
+from alloy.workbench.glassware import ASSETS
+
 from .generate_pour_cup import convex_part
 
 # Lengthwise cross sections in metres: x, half width, centre height, bowl rise, half thickness.
@@ -32,7 +32,7 @@ PROFILE = np.array([
 
 
 def main():
-    assets = Path(__file__).with_name("assets")
+    assets = ASSETS
     stations = PROFILE[:, 0]
     subdivisions = 4
     xs = np.concatenate([np.linspace(a, b, subdivisions, endpoint=False) for a, b in zip(stations, stations[1:])])

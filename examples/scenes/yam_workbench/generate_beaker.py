@@ -1,12 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate the glass beaker and its open-cavity collision hulls."""
-from pathlib import Path
-
 import numpy as np
 
 from alloy.importers.common.objio import hulls_obj_text, mesh_obj_text, read_hulls_obj, sha256_bytes
 from .generate_pour_cup import convex_part
-from .glassware import DEPTH, WALL, cup_mesh
+from alloy.workbench.glassware import ASSETS, DEPTH, WALL, cup_mesh
 
 
 def beaker_vertices(vertices):
@@ -19,7 +17,7 @@ def beaker_vertices(vertices):
 
 
 def main():
-    assets = Path(__file__).with_name("assets")
+    assets = ASSETS
     vertices, faces = cup_mesh()
     _, cup_hulls = read_hulls_obj(assets / "glass-cup.hulls.obj")
     hulls = [convex_part(beaker_vertices(points)) for points, _ in cup_hulls]

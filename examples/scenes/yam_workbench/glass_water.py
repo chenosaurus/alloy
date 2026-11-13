@@ -10,7 +10,7 @@ import time
 import alloy
 import numpy as np
 
-from .glassware import LOOK, add_water_cup, in_cup
+from alloy.workbench.glassware import LOOK, add_water_cup, in_cup
 
 
 def make_scene(accuracy='default'):

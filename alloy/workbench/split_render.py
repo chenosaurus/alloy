@@ -75,7 +75,8 @@ def _physics_worker(args, shared):
     # Set this before importing Alloy or initializing a CUDA context in this process.
     realtime = getattr(args, "realtime_fluid", False)
     from alloy.camera.liquid_scene import DeviceFlags
-    from .yam_portal import FIELDS, Simulation
+    from . import FIELDS
+    from .simulation import Simulation
 
     runner = Simulation(args, physics_only=True)
     try:
@@ -140,6 +141,10 @@ def _physics_worker(args, shared):
                 splash_after = None
             with shared.command_lock:
                 command = dict(zip(FIELDS, shared.command)) if now < shared.command_until.value else None
+                hold = shared.hold_requested.value
+                shared.hold_requested.value = False
+            if hold:
+                runner.hold()
             joints, _ = runner.tick(command, 1, render=False)
             deadline = clock_origin + (sim.t - initial_time) if realtime else None
             publish(joints, deadline)
@@ -185,7 +190,8 @@ class SplitSimulation:
 
     def __init__(self, args):
         from alloy.camera.liquid_scene import DeviceFlags
-        from .yam_portal import FIELDS, Simulation
+        from . import FIELDS
+        from .simulation import Simulation
 
         self.renderer = Simulation(args, render_only=True)
         self.physics = None
@@ -215,6 +221,7 @@ class SplitSimulation:
                 command_lock=ctx.Lock(),
                 command=ctx.RawArray(ctypes.c_double, len(FIELDS)),
                 command_until=ctx.RawValue(ctypes.c_double),
+                hold_requested=ctx.RawValue(ctypes.c_bool),
                 ready=ctx.Event(),
                 started=ctx.Event(),
                 stop=ctx.Event(),
@@ -237,19 +244,22 @@ class SplitSimulation:
     def reset(self):
         with self.shared.command_lock:
             self.shared.command_until.value = 0.
+            self.shared.hold_requested.value = False
         self.shared.reset_done.clear()
         self.shared.reset_requested.set()
         while not self.shared.reset_done.wait(.1):
             self.check()
         self.previous = None
 
-    def tick(self, action, _steps, command_until=0.):
-        from .yam_portal import FIELDS
+    def tick(self, action, _steps, command_until=0., *, hold=False):
+        from . import FIELDS
 
         start = time.perf_counter()
         self.check()
         with self.shared.command_lock:
             self.shared.command_until.value = command_until if action is not None else 0.
+            if hold:
+                self.shared.hold_requested.value = True
             if action is not None:
                 self.shared.command[:] = [action[name] for name in FIELDS]
         with self.shared.snapshot_lock:
