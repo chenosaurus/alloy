@@ -158,6 +158,7 @@ class MeshSource:
     scale: Vec3 = (1.0, 1.0, 1.0)
     collision: Literal["convex", "decompose", "sdf", "mesh"] = "convex"
     max_parts: int = 32
+    particle_surface: bool = False
 
 
 @dataclass(frozen=True)

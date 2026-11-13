@@ -116,6 +116,23 @@ def test_the_card_mesh_is_drawn_and_the_hulls_are_not(root):
     assert not [n for n in drawn if "/hull_" in n] and {"base/visual", "ell/visual"} <= set(drawn)
 
 
+def test_particle_surface_survives_scene_round_trip(root):
+    scene = alloy.Scene(dt=0.01, roots=[str(root)])
+    scene.add_mesh("ell", root / "meshes" / "ell_test.obj", collision="decompose",
+                   particle_surface=True, static=True)
+    scene.add_box("drop", size=(.02, .02, .02), pos=(0., 0., .15))
+    sim = alloy.build(alloy.Scene.from_dict(scene.to_dict()), device="cpu")
+    try:
+        model = sim.engine.model
+        flags = dict(zip(model.shape_label, model.shape_flags.numpy()))
+        assert flags["ell/visual"] & (VISIBLE | PARTICLES | COLLIDE) == VISIBLE | PARTICLES
+        hulls = [flag for name, flag in flags.items() if name.startswith("ell/hull_")]
+        assert len(hulls) == len(HULLS)
+        assert all(flag & (VISIBLE | PARTICLES | COLLIDE) == COLLIDE for flag in hulls)
+    finally:
+        sim.close()
+
+
 def test_mass_and_surface_are_the_cards(root, monkeypatch):
     on = alloy.build(_drop(root), device="cpu").engine.model
     _no_display(monkeypatch)

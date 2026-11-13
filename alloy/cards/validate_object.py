@@ -81,6 +81,8 @@ def _check_mesh_source(iss: Issues, card: ct.ObjectCard, s: ct.MeshSource, lib: 
         check_positive(iss, f"shape.scale.{i}", k)
     if s.max_parts < 1 or s.max_parts > card.budget.collision_parts:
         iss.error("shape.max_parts", f"{s.max_parts} outside [1, budget.collision_parts={card.budget.collision_parts}]")
+    if s.particle_surface and s.collision != "decompose":
+        iss.error("shape.particle_surface", "requires collision='decompose'")
     path = _asset(lib, iss, "shape.path", s.path)
     if path is None:
         return None
@@ -92,6 +94,8 @@ def _check_mesh_source(iss: Issues, card: ct.ObjectCard, s: ct.MeshSource, lib: 
         iss.error("shape.path", f"mesh {s.path!r} is inside out (negative signed volume): flip its winding")
     elif mesh is not None and s.collision in ("sdf", "mesh") and not geo.is_watertight(mesh):
         iss.error("shape.path", f"collision={s.collision!r} needs a watertight, consistently wound mesh")
+    elif mesh is not None and s.particle_surface and not geo.is_watertight(mesh):
+        iss.error("shape.path", "particle_surface needs a watertight, consistently wound mesh")
     return mesh
 
 

@@ -142,7 +142,7 @@ class Scene(FixtureMixin, HeatMixin, JointYieldMixin, _rigid_step.RigidStepMixin
 
     def add_mesh(self, name: str, path: str | Path | None = None, *, vertices: Any = None, faces: Any = None,
                  scale: float | Sequence[float] = 1.0, collision: str = "convex", pos: Any = (0.0, 0.0, 0.0),
-                 **kw: Any) -> str:
+                 particle_surface: bool = False, **kw: Any) -> str:
         """A rigid triangle mesh from an OBJ/STL file or from ``vertices`` (V, 3) and ``faces`` (F, 3) arrays.
 
         ``collision``: "convex" (hull; fast), "decompose" (convex parts), "sdf" (exact, for cups, bins, holes) or
@@ -152,11 +152,20 @@ class Scene(FixtureMixin, HeatMixin, JointYieldMixin, _rigid_step.RigidStepMixin
         needs ``pip install "alloy-engine[import]"`` (CoACD, trimesh) and a closed mesh. For cups, bins and holes prefer ``add_open_box`` / ``add_open_cylinder`` /
         ``add_block_with_hole`` (static boxes: exact and fast). Faces wind counter-clockwise seen from outside.
 
+        For a watertight decomposed mesh, ``particle_surface=True`` uses its continuous surface for particle
+        contact. Rigid bodies still collide with the convex parts.
+
         Example: ``scene.add_mesh("cup", vertices=v, faces=f, collision="sdf", static=True)``."""
         A.one_of(collision, COLLISIONS, "collision")
+        if not isinstance(particle_surface, bool) or (particle_surface and collision != "decompose"):
+            raise SceneError("invalid particle_surface for this mesh",
+                             "pass particle_surface=False or use particle_surface=True with collision='decompose'",
+                             field="particle_surface")
         mesh = _mesh_spec(path, vertices, faces)
         s = [float(scale)] * 3 if isinstance(scale, (int, float)) else A.sizes(scale, 3, "scale")
         shape = {"mesh": {"path": "", "sha256": "", "scale": s, "collision": collision}}
+        if particle_surface:
+            shape["mesh"]["particle_surface"] = True
         return self._add(name, "mesh", shape, pos, None, mesh=mesh, **kw)
 
     # --- deformables, liquids, robots, library objects -----------------------------------------------------------

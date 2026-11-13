@@ -117,14 +117,20 @@ def _emit_decomposed(b: newton.ModelBuilder, obj: ResolvedObject, cfg: newton.Mo
     first = b.shape_count
     for k, h in enumerate(hulls):
         b.add_shape_convex_hull(body, mesh=newton_mesh(h), cfg=cfg, label=f"{card.name}/hull_{k}")
-    _add_display_mesh(b, body, mesh, cfg, card.name, range(first, b.shape_count))
+    hulls = range(first, b.shape_count)
+    surface = _add_display_mesh(b, body, mesh, cfg, card.name, hulls)
+    if src.particle_surface and cfg.has_particle_collision:
+        particles = int(newton.ShapeFlags.COLLIDE_PARTICLES)
+        for shape in hulls:
+            b.shape_flags[shape] &= ~particles
+        b.shape_flags[surface] |= particles
 
 
 def _add_display_mesh(b: newton.ModelBuilder, body: int, mesh: TriMesh, cfg: newton.ModelBuilder.ShapeConfig,
                       name: str, hulls: range) -> int:
     """SCR OSS-9-5 item 4: the card mesh as a display-only shape on the body, and VISIBLE cleared on its hulls, so
     cameras draw the object rather than its convex decomposition (SOFT-3's robot visual layer does the same).
-    Physics is unchanged: the shape has density 0 (no mass update) and no shape or particle collision (SolverMuJoCo
+    Physics is unchanged: the shape has density 0 (no mass update) and no shape or particle collision by default (SolverMuJoCo
     skips visual-only geoms), and no solver reads VISIBLE. It keeps the card's surface values for the readback."""
     vis = dataclasses.replace(cfg, density=0.0, has_shape_collision=False, has_particle_collision=False,
                               is_visible=True, is_hydroelastic=False)                  # hydroelastic needs mesh.sdf
