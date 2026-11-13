@@ -177,6 +177,10 @@ def test_liquid_cfl_round_trips_and_reaches_sph():
     scene.liquid_cfl = 0.4
     restored = alloy.Scene.from_dict(scene.to_dict())
     assert restored.liquid_cfl == 0.4
-    with alloy.build(restored, device="cpu") as sim:
+    sim = alloy.build(restored, device="cpu")
+    try:
         assert "SPH travel limit: 0.4" in " ".join(sim.routes()["water"]["reasons"])
-        assert sim.built.entries[0].solver_kwargs["cfl"] == 0.4
+        sph = next(entry for entry in sim.built.entries if entry.capability == "sph")
+        assert sph.solver_kwargs["cfl"] == 0.4
+    finally:
+        sim.close()

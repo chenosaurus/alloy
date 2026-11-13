@@ -64,7 +64,8 @@ def build(scene: Scene | str | Path | dict, worlds: int | None = None, device: s
           *, profile: str = "standard", contacts: str = "auto", plugins: Sequence[Any] = (),
           processes: int | str | None = None, mpm_sweeps: str = "full", rerun_worlds: int = 0,
           mpm_coupling: str | None = None, contact_capacity: int | None = None,
-          constraint_rows: int | None = None, welds: str | None = None) -> Any:
+          constraint_rows: int | None = None, welds: str | None = None,
+          liquid_coupling: str = "standard") -> Any:
     """Build ``scene`` (a ``Scene``, a path / library scene name for ``alloy.load``, or ``Scene.to_dict()`` data).
 
     - ``worlds``: parallel copies (default: the scene's ``worlds``);
@@ -126,6 +127,9 @@ def build(scene: Scene | str | Path | dict, worlds: int | None = None, device: s
       process only for now.
     - ``welds``: "stiff" (the default: MJCF weld / connect rows at MuJoCo's default solref / solimp take the
       attachments' stiff rule for the rigid step, ``docs/known_gaps/weld-stretch-under-load.md``) or "mujoco".
+    - ``liquid_coupling``: "standard" or "interactive". The interactive CUDA MuJoCo–SPH profile uses one
+      two-way coupling pass, exchanges up to 5 ms, adaptive CFL substeps and a capped density solve.
+      This preview may produce larger contact and pressure errors during impacts.
 
     The first build of a new scene compiles GPU kernels (about a minute; cached afterwards).
     Example: ``sim = alloy.build(scene, worlds=1024)``."""
@@ -136,6 +140,12 @@ def build(scene: Scene | str | Path | dict, worlds: int | None = None, device: s
     native = _contacts(scene, contacts)
     tau = _mpm_tau(mpm_sweeps)
     pair_clock = _pair_clock(mpm_coupling)
+    if liquid_coupling not in ("standard", "interactive"):
+        raise BuildError(f"unknown liquid_coupling {liquid_coupling!r}",
+                         "pass 'standard' or 'interactive'", field="liquid_coupling")
+    if liquid_coupling == "interactive" and not dev.startswith("cuda"):
+        raise BuildError("interactive liquid coupling requires CUDA",
+                         "use a CUDA device or liquid_coupling='standard'", field="liquid_coupling")
     plugins = _checked_plugins(plugins)
     _check_rerun_worlds(rerun_worlds, n)
     _robot_random.refuse_rerun_worlds(scene, rerun_worlds)
@@ -148,9 +158,10 @@ def build(scene: Scene | str | Path | dict, worlds: int | None = None, device: s
                              tau=tau, rerun_worlds=rerun_worlds, pair_clock=pair_clock, capacity=cap)
         if split is not None:
             return split
-    from alloy.integration.mpm_clock import requested  # noqa: PLC0415
+    from alloy.integration import liquid_clock, mpm_clock  # noqa: PLC0415
 
-    with requested(pair_clock), weld_stiff.requested(welds), world_limits(n):   # read when the stepper / model is wired
+    with (mpm_clock.requested(pair_clock), liquid_clock.requested(liquid_coupling == "interactive"),
+          weld_stiff.requested(welds), world_limits(n)):
         sim = _mark_mpm(build_block(scene, n, dev, seed, profile=(profile, native), plugins=plugins, capacity=cap),
                         tau)
         if rerun_worlds:

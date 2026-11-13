@@ -333,7 +333,10 @@ class IntegratedSimulation(Simulation):
             return None, 1
         if self.graph_choice is not None and self.graph_choice.eager(key):    # lever #3: timed slower as graphs
             return None, 1
-        chunk = self._chunk(key, n)
+        # A force jump can introduce several temporary clocks in one period.
+        # Replay small graphs so a later impact can reuse the graphs warmed by
+        # the first one, even when the health-check pattern starts elsewhere.
+        chunk = self._chunk(key, 1 if getattr(self.stepper, "reuse_impact_graphs", False) else n)
         graph = chunk_graph(self, key, chunk, dt_x)
         uncounted = chunk == 1 and key not in self.exchange_nodes and countable(self.model.device)
         if uncounted and not self._fits(key, graph):

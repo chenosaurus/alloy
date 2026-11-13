@@ -303,6 +303,9 @@ round cup is not at rest (its corners stick out), collapses and jets over the ri
 - `alloy.Scene(liquid_cfl=0.4)` allows up to 0.4 particle spacings of travel per SPH step in the fluid clock
   estimate. The default is 0.2. This can use fewer substeps in a splash, with coarser time resolution. Particle
   spacing and pressure tolerances are set independently. Scene JSON keeps the value, and `sim.routes()` reports it.
+- `alloy.build(scene, liquid_coupling="interactive")` is a CUDA preview for a two-way MuJoCo Warp and DFSPH pair
+  using native rigid contacts. It uses one coupling pass, exchanges up to 5 ms, adaptive liquid CFL substeps,
+  and a cheaper pressure solve. Use the default `"standard"` for the usual contact and pressure accuracy.
 - `sim.liquid_volume(name)`: the simulated volume in m³. Whole particles fill the box, so it can be a few percent
   below the box volume; enlarge the box for an exact amount.
 - `sim.particle_volume(name)`: the volume one particle stands for. Liquid in a region = particles inside it times

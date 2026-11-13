@@ -79,6 +79,7 @@ class ClockPolicy:
     # of the defaults' four did. Run to run, 2 bad of 9 against 1 of 9 is not a difference; by the rate rule it
     # fails. Kept only so the rows can be repeated ([internal note] notes/wp10-runs/speed1109/out_rates)
     rungs_follow_dt_x: bool = False
+    keep_rigid_step_on_impact: bool = False  # shrink rigid substep count when an impact shrinks the exchange
 
 
 @dataclass(frozen=True)
@@ -119,6 +120,7 @@ class WatchdogPolicy:
     # the sticky ladder (clock floor, strong mode) only when a world trips again within ``window`` or a period ends
     # still escalated (alloy.coupling.ladder). False: every escalation takes the sticky ladder at once
     per_period_ladder: bool = True
+    predict_onset_level: bool = False      # skip intermediate replays for large impulses in interactive mode
 
 
 @dataclass(frozen=True)

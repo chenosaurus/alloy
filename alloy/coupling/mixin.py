@@ -273,9 +273,13 @@ class SchedulerMixin:
         if decision.bound_unmet:
             log.warning("interface bound %.3g s is finer than control_dt/2^j_max; running at %.3g s",
                         self._interface_bound(), decision.dt_x)
-        self._apply_substeps(decision.substeps)
-        self._dt_x, self._attempt_limit = self._onset.attempt(control_dt, j, decision.dt_x if j == decision.j
-                                                              else grid_dt(control_dt, j), j_max)
+        base_dt = decision.dt_x if j == decision.j else grid_dt(control_dt, j)
+        self._dt_x, self._attempt_limit = self._onset.attempt(control_dt, j, base_dt, j_max)
+        substeps = dict(decision.substeps)
+        if self.reuse_impact_graphs and "mujoco" in substeps:
+            ratio = max(1, round(base_dt / self._dt_x))
+            substeps["mujoco"] = max(1, substeps["mujoco"] // ratio)
+        self._apply_substeps(substeps)
         self._watchdog.begin_attempt(self._attempt_limit, self._onset.armed(self._watchdog.world_count))
         if (cp is not None and cp[0].active) or gate is not None or self._band_rerun.on:   # what a re-run starts from
             self._onset_last = self._onset.last.copy()
@@ -283,7 +287,7 @@ class SchedulerMixin:
         self._rung_changes += decision.rung_changes
         self._steps_seen, self._steps_captured = 0, False
         self._steps_expected = max(int(round(control_dt / self._dt_x)), 1)
-        return self._dt_x, dict(decision.substeps)
+        return self._dt_x, substeps
 
     def _gate_evaluate(self, gate: Any, control_dt: float) -> bool:
         """Lever #2: arm the pairs near contact at the period start; True when the armed set changed."""
@@ -291,6 +295,11 @@ class SchedulerMixin:
         if gate is None or state is None:
             return False
         return gate.evaluate(state, control_dt)
+
+    @property
+    def reuse_impact_graphs(self) -> bool:
+        """Use single-exchange graphs and reduce the rigid rung during interactive impact replays."""
+        return self._onset.level > 0 and self._alloy_policy.clock.keep_rigid_step_on_impact
 
     def _save_attempt_watch(self) -> None:
         """The watchdog's per-world arrays as this attempt starts (not the period start's): a re-run's (lever #1/#2)."""

@@ -107,6 +107,17 @@ def test_refiner_rules():
     assert ref.attempt(0.02, 9, 0.02 / 512, 10) == (0.02 / 1024, math.inf)  # j_max reached: trigger off
 
 
+def test_large_force_jump_uses_the_finer_exchange_directly():
+    ref = OnsetRefiner(WatchdogPolicy(predict_onset_level=True))
+    ref.new_period()
+    assert ref.accept(_report([2, 0], [1, 0], [8 * LIMIT, 10.0]))
+    assert ref.attempt(.01, 1, .005, 10) == (.00125, LIMIT)
+    assert ref.accept(_report([2, 0], [1, 0], [32 * LIMIT, 10.0]))
+    assert ref.attempt(.01, 1, .005, 10) == (.000625, math.inf)
+    ref.new_period()
+    assert ref.attempt(.01, 1, .005, 10) == (.005, LIMIT)
+
+
 @pytest.mark.slow
 @pytest.mark.timeout(3600)
 def test_eight_heights_first_contact_within_limit():

@@ -88,6 +88,17 @@ class OnsetRefiner:
         """on_rollback: True (and the re-run is armed) when the rolled-back attempt was a force jump."""
         if not self.wants_rerun(report):
             return False
+        if self.policy.predict_onset_level:
+            escalated = _escalated(report)
+            peak = np.asarray((report.notes or {}).get("exchange_peak", ()), dtype=float)
+            if peak.shape == escalated.shape:
+                # The lagged impulse estimate scales with the square of the exchange interval.
+                remaining = self.policy.onset_refine_levels - self.level
+                peak_error = peak[escalated].max()
+                jump = 1
+                while jump < remaining and peak_error > self.policy.onset_gain_per_exchange * 4**jump:
+                    jump += 1
+                self.level += jump - 1
         self.pending = True
         self.reruns += 1
         return True

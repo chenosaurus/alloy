@@ -41,6 +41,7 @@ from alloy.integration.kinematic_carrier import (CARRIER, carried_into_mpm, carr
 from alloy.integration.precision_pin import pin_exchange
 from alloy.scene.steppers import SingleEntryStepper, StockProxyStepper, solver_kwargs
 from alloy.scene.types import BuiltScene, EntrySpec
+from alloy.integration import liquid_clock
 
 log = logging.getLogger("alloy.integration")
 
@@ -58,6 +59,9 @@ def make_stepper(built: BuiltScene, native: str, policy: SchedulerPolicy | None 
     dyn = dynamic_entries(built)
     if not dyn:
         raise CouplingError("scene has no dynamic entry to step")
+    interactive_liquid = liquid_clock.interactive()
+    if interactive_liquid and (len(dyn) != 2 or stock):
+        raise CouplingError("interactive liquid coupling needs a CUDA MuJoCo and SPH pair with native rigid contacts")
     if len(dyn) == 1:
         return SingleEntryStepper(built, dyn[0], native)
     if stock:
@@ -67,9 +71,11 @@ def make_stepper(built: BuiltScene, native: str, policy: SchedulerPolicy | None 
     if kind not in ("proxy", "admm"):
         raise CouplingError(f"{len(dyn)} dynamic entries but coupler kind {kind!r} (D5 expects proxy or admm)")
     dyn = _with_carrier(dyn, built.model, built.coupler)
-    by_name = {e.name: e for e in dyn}
     pairs = coupler_pairs(built, dyn)
     pol = mpm_clock.pair_policy(policy if policy is not None else SchedulerPolicy(), built)   # S5, opt-in
+    if interactive_liquid:
+        dyn, pairs, pol = liquid_clock.configure(built, native, dyn, pairs, pol)
+    by_name = {e.name: e for e in dyn}
     pol = pin_exchange(pol, built)                             # SCR-JOB2-1: a precision pin's cap wins
     pol = mpm_proxy.wall_policy(pol, built)                    # SPH-MPM particle walls: L2 force gate
     if kind == "admm":
