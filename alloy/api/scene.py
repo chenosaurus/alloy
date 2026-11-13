@@ -47,7 +47,7 @@ class Scene(FixtureMixin, HeatMixin, JointYieldMixin, _rigid_step.RigidStepMixin
     """A scene under construction. ``worlds``: parallel copies; ``dt``: control period in seconds; ``roots``: your
     own card folders (``materials/``, ``objects/``, ...: e.g. cards made by ``alloy.create`` or ``alloy.io``),
     searched before the shipped and imported libraries; ``liquid_accuracy``: "default" (liquid particles 4 mm apart)
-    or "super" (2 mm, about 16x the cost; a build warns when the default is too coarse for an opening or a stream);
+    or "super" (2 mm, about 16x the cost) or "fast" (6 mm for demos);
     ``cloth_accuracy``: "default", "super" (nearer convergence, 1.4x the cloth cost) or "fast" (the cloth solver's own
     10 iterations, 0.4x the default's cloth cost, CPU 0.25x; a drape stretches 12 %); soft bodies use it too. Example:
     ``s = alloy.Scene(worlds=64); s.add_ground(); s.add_sphere("ball", 0.05, pos=(0, 0, 0.3))``."""
@@ -71,7 +71,7 @@ class Scene(FixtureMixin, HeatMixin, JointYieldMixin, _rigid_step.RigidStepMixin
 
     @property
     def liquid_accuracy(self) -> str:
-        """"default" (liquid particles 4 mm apart) or "super" (2 mm, about 16x the cost); set it before building."""
+        """"default" (4 mm), "super" (2 mm), or "fast" (6 mm); set it before building."""
         return self._liquid_accuracy
 
     @liquid_accuracy.setter

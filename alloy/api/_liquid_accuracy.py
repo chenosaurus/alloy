@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Liquid accuracy: ``liquid_accuracy="default"`` (4 mm particle spacing) or ``"super"`` (2 mm), one build option
-(SCR-WP9-LIQRES; user decision 2026-11-08). Super has 8x the particles and takes about 2x the steps: about 16x the
-cost (11-20x wall time measured on pours).
+"""Liquid accuracy sets SPH particle spacing: 4 mm with ``"default"``, 2 mm with ``"super"``,
+or 6 mm with ``"fast"`` for demos. Super has 8x the particles and takes about 2x the steps:
+about 16x the cost (11-20x wall time measured on pours).
 
 A build warns once when the setting is too coarse for the scene, listing each item and naming the setting that fixes
 it (``coarse`` / ``warn``). Counted as particles across, width / spacing (CPU probes,
@@ -23,14 +23,15 @@ from typing import Any
 
 from alloy.api import _say
 from alloy.api.errors import SceneError
+from alloy.route.types import LIQUID_SPACING as SPACING
 
-SPACING = {"default": 4.0e-3, "super": 2.0e-3}       # m: SPH particle spacing per setting (radius = half)
 #: measured accuracy per setting (CPU quick laws and pours, [internal note] notes/wp9-runs/liqres/README.md)
 ACCURACY = {
     "default": "hydrostatic wall force 1.1 %, floating draft 4.9 % (5 particles deep), dam front within "
                "Ritter's bound; pours keep 99.7 % in cups from 32 mm",
     "super": "hydrostatic wall force 0.2 %, floating draft 4.2 %, dam front within Ritter's bound; pours keep "
              "97.6-99.8 % in cups from 24 mm",
+    "fast": "coarser liquid for demos; fine streams and small splashes lose detail",
 }
 OPENING_ACROSS = 8.0
 OPENING_MIN = 0.024                                   # m
@@ -48,10 +49,10 @@ class Coarse:
 
 
 def checked(accuracy: Any) -> str:
-    """``accuracy`` if it is a setting, else a SceneError naming both. Example: ``checked("super")`` -> "super"."""
+    """``accuracy`` if it is a setting, else a SceneError. Example: ``checked("super")`` -> "super"."""
     if not isinstance(accuracy, str) or accuracy not in SPACING:
         raise SceneError(f"liquid_accuracy must be one of {sorted(SPACING)}, got {accuracy!r}",
-                         "pass liquid_accuracy='default' (4 mm particles) or 'super' (2 mm, about 16x the cost)",
+                         "pass liquid_accuracy='default' (4 mm), 'super' (2 mm), or 'fast' (6 mm)",
                          field="liquid_accuracy")
     return accuracy
 
@@ -124,11 +125,13 @@ def built_spacing(built: Any, accuracy: str) -> float:
 
 
 def _fix(c: Coarse, accuracy: str) -> str:
-    """What to change for one coarse item: super if it resolves it, else the geometry or the pour."""
+    """Suggest the coarsest finer setting that resolves the item, or a geometry change."""
     other = "widen it" if c.what == "opening" else "raise the pour's rate or lower its speed"
     if c.what == "opening" and c.width < OPENING_MIN - 1e-12:
         return f"widen it to {OPENING_MIN * 1e3:.0f} mm or more (narrower containers are unreliable at any setting)"
     limit = OPENING_ACROSS if c.what == "opening" else STREAM_ACROSS
+    if accuracy == "fast" and c.width / SPACING["default"] >= limit - 1e-9:
+        return "build with liquid_accuracy='default' (4 mm particles)"
     if accuracy != "super" and c.width / SPACING["super"] >= limit - 1e-9:
         return "build with liquid_accuracy='super' (2 mm particles, about 16x the cost)"
     return ("even liquid_accuracy='super' is too coarse: " if accuracy != "super" else "") + other

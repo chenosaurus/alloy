@@ -29,6 +29,7 @@ from alloy.cli.jsonio import plain
 from alloy.cli.scenes import ADDERS
 from alloy.cli.session import Session
 from alloy.cli.spec import Op, Param, check_request
+from alloy.route.types import LIQUID_SPACING
 
 log = logging.getLogger("alloy.cli")
 
@@ -37,8 +38,9 @@ _RECIPE_SCHEMA = {
     "properties": {"base": {"type": "string", "description": "start from this library scene or file"},
                    "worlds": {"type": "integer", "minimum": 1},
                    "dt": {"type": "number", "description": "control period, s"},
-                   "liquid_accuracy": {"enum": ["default", "super"],
-                                       "description": "liquid particles 4 mm apart (default) or 2 mm (super)"},
+                   "liquid_accuracy": {"enum": list(LIQUID_SPACING),
+                                       "description": "liquid particles 4 mm apart (default), 2 mm (super), "
+                                                      "or 6 mm (fast)"},
                    "materials": {"type": "array", "items": {"type": "object"}},
                    "objects": {"type": "array", "items": {
                        "type": "object", "required": ["add"],
@@ -62,8 +64,8 @@ SEED = Param("seed", "integer", "seed of randomized values (same seed, same worl
 PROFILE = Param("profile", "string", "integration profile", choices=("standard", "precision", "fast", "debug"))
 CONTACTS = Param("contacts", "string", "contact pipeline", choices=("auto", "mujoco", "newton"))
 LIBRARY = Param("library", "strings", "extra card library folders, searched first")
-LIQUID = Param("liquid_accuracy", "string", "liquid particles: default 4 mm apart, super 2 mm (finer openings and "
-               "streams, about 16x the cost); sets the scene's liquid_accuracy", choices=("default", "super"))
+LIQUID = Param("liquid_accuracy", "string", "liquid particle spacing: default 4 mm, super 2 mm, or fast 6 mm",
+               choices=tuple(LIQUID_SPACING))
 BUILD = (SCENE, WORLDS, DEVICE, SEED, PROFILE, CONTACTS, LIBRARY, LIQUID)
 ON_SIM = (SIM, *BUILD)
 NAMES = Param("names", "strings", "bodies, joints or particle objects to report (default: all)")

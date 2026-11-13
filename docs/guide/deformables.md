@@ -277,7 +277,7 @@ round cup is not at rest (its corners stick out), collapses and jets over the ri
   `self_contact=False` (it stayed OK in the one scene measured) or use a film sheet (`film_ldpe`). Cloth takes up no
   water (`docs/known_gaps/liquid-on-cloth.md`).
 - Accuracy: one setting for all the scene's liquid, `alloy.Scene(liquid_accuracy=...)` (or `scene.liquid_accuracy`;
-  CLI `--liquid-accuracy`). `alloy.estimate(scene, worlds, seconds)["liquid"]` gives both settings' particles, time,
+  CLI `--liquid-accuracy`). `alloy.estimate(scene, worlds, seconds)["liquid"]` gives each setting's particles, time,
   memory and accuracy before you run. `sim.routes()` names the setting and spacing, and `traj.meta["liquid_accuracy"]`
   records it.
 
@@ -285,17 +285,18 @@ round cup is not at rest (its corners stick out), collapses and jets over the ri
   |---|---|---|---|
   | `"default"` | 4 mm apart | 1x | hydrostatic wall force 1.1 %, floating draft 4.9 % (5 particles deep), dam front within Ritter's bound, pours keep 99.7 % in cups from 32 mm |
   | `"super"` | 2 mm apart | about 16x the work (8x the particles, 2x the steps). Measured: 11-20x on CPU pours; on one L4 3.5-3.8x for one world and 36-49x at 64-256 worlds (two measurements) | wall force 0.2 %, draft 4.2 %, dam front within Ritter's bound, pours keep 97.6-99.8 % in cups from 24 mm |
+  | `"fast"` | 6 mm apart | about one third as many particles for the same volume | coarser streams and splashes for demos |
 
   - When the setting is too coarse, the build says so once, in one line naming each item, its width in particles and
     the fix. It checks:
     - the opening of an `add_open_box` (its narrower inner side), `add_open_cylinder` (inner diameter) or
       `add_block_with_hole` (the hole), and a container card's `passage_width`: under 8 particles across (32 mm at
-      default) or under 24 mm at either setting. From 24 to 32 mm the fix is `liquid_accuracy="super"`; under 24 mm,
-      a wider container;
-    - an `add_pour` stream under 2 particles wide (8 mm at default, 4 mm at super; the default pour is 20 mm wide).
-      The fix is super, or a higher `rate` or lower `speed`, which widens the stream.
+      default, 48 mm at fast) or under 24 mm at any setting. From 24 to 32 mm use `liquid_accuracy="super"`.
+      For openings from 32 to 48 mm, `"default"` also works. Below 24 mm, use a wider container.
+    - an `add_pour` stream under 2 particles wide (8 mm at default, 4 mm at super, 12 mm at fast).
+      Finer particles, a higher `rate`, or a lower `speed` can meet the two-particle minimum.
     - An `add_mesh` container is not checked: give its opening the same widths yourself.
-  - Containers narrower than 24 mm are unreliable at both settings: liquid at rest in them can start INVALID
+  - Containers narrower than 24 mm can start INVALID with liquid at rest
     (`docs/known_gaps/liquid-narrow-containers.md`).
   - Saved cards (`scene.save()`) don't keep the setting; Scene JSON (`scene.to_json()`) does. On a scene loaded from
     cards, set `scene.liquid_accuracy = "super"` again.

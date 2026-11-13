@@ -13,7 +13,6 @@ import pytest
 import alloy
 from alloy.api import _liquid_accuracy as LA
 from alloy.api.errors import SceneError
-from alloy.route.types import LIQUID_SPACING
 
 
 def _items(opening: float | None = None, stream: float | None = None) -> dict:
@@ -38,7 +37,9 @@ def test_the_setting_is_a_scene_field_that_round_trips():
     with pytest.raises(SceneError):
         sc.liquid_accuracy = "fine"                     # checked when set (OSS-17's review), not first at build
     assert sc.liquid_accuracy == "super"
-    assert LA.SPACING == dict(LIQUID_SPACING) == {"default": 4.0e-3, "super": 2.0e-3}
+    assert LA.SPACING == {"default": 4.0e-3, "super": 2.0e-3, "fast": 6.0e-3}
+    sc.liquid_accuracy = "fast"
+    assert alloy.Scene.from_dict(sc.to_dict()).liquid_accuracy == "fast"
 
 
 @pytest.mark.law
@@ -76,6 +77,8 @@ def test_the_warning_is_one_line_naming_the_fix():
     assert "20.0 mm = 10.0 particles across (needs 24 mm): widen it to 24 mm" in under_floor     # not "needs 8"
     assert "(needs 8 across)" in msg
     assert LA.message(LA.coarse(_items(stream=0.003), 2e-3), "super").endswith("lower its speed")
+    fast = LA.message(LA.coarse(_items(opening=0.040), LA.spacing("fast")), "fast")
+    assert "liquid_accuracy='default'" in fast
 
 
 def _cup_scene(acc: str, inner_radius: float) -> alloy.Scene:
@@ -107,12 +110,13 @@ def test_a_build_routes_at_the_setting_and_warns_once(caplog):
     sim.close()
 
 
-def test_estimate_shows_both_settings():
+def test_estimate_shows_liquid_settings():
     est = alloy.estimate(_cup_scene("default", 0.02), 2, 0.5, device="cpu")
     rows = est["liquid"]
-    assert est["liquid_accuracy"] == "default" and set(rows) == {"default", "super"}
+    assert est["liquid_accuracy"] == "default" and set(rows) == {"default", "super", "fast"}
     assert rows["default"]["spacing_mm"] == 4.0 and rows["super"]["spacing_mm"] == 2.0
     assert rows["super"]["particles"] > 6 * rows["default"]["particles"]
+    assert rows["fast"]["spacing_mm"] == 6.0 and rows["fast"]["particles"] < rows["default"]["particles"]
     # 2x the steps and 8x the particles, but each step's fixed SPH cost (FIX-LIST 7 fit) is shared: 6.6x on this
     # 2 cm cup (FIX-LIST 7 moved this pin from 8x), towards 16x as the particles grow
     assert rows["super"]["wall_time_s"] > 5 * rows["default"]["wall_time_s"]

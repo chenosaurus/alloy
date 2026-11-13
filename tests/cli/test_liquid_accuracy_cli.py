@@ -32,7 +32,7 @@ def test_the_flag_is_on_every_building_op_and_in_mcp():
         assert "liquid_accuracy" in {p.name for p in OPS[name].params}, name
     tools = {t["name"]: t for t in tool_list()}
     prop = tools["estimate"]["inputSchema"]["properties"]["liquid_accuracy"]
-    assert prop["enum"] == ["default", "super"]
+    assert prop["enum"] == ["default", "super", "fast"]
 
 
 def test_to_scene_sets_it_and_keeps_the_default_out_of_json():
@@ -42,11 +42,11 @@ def test_to_scene_sets_it_and_keeps_the_default_out_of_json():
     assert to_scene(sc.to_dict()).liquid_accuracy == "super"                  # Scene JSON carries it
 
 
-def test_estimate_names_the_setting_and_both_rows():
-    reply = _run("estimate", RECIPE, "--liquid-accuracy", "super", "--device", "cpu", "--seconds", "0.2")
+def test_estimate_names_the_setting_and_rows():
+    reply = _run("estimate", RECIPE, "--liquid-accuracy", "fast", "--device", "cpu", "--seconds", "0.2")
     assert reply["ok"], reply
     res = reply["result"]
-    assert res["liquid_accuracy"] == "super" and set(res["liquid"]) == {"default", "super"}
+    assert res["liquid_accuracy"] == "fast" and set(res["liquid"]) == {"default", "super", "fast"}
     assert res["liquid"]["super"]["particles"] > 6 * res["liquid"]["default"]["particles"]
 
 
