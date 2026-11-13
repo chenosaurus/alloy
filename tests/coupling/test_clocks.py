@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+import struct
 
 import pytest
 
@@ -50,6 +51,14 @@ def test_pick_rung():
     assert pick_rung(1.25e-3, math.inf, 0.5, ladder) == 1
     assert pick_rung(1.25e-3, 1.0e-9, 0.5, ladder) == 64            # nothing qualifies -> largest rung
     assert pick_rung(1.25e-3, 0.0, 0.5, ladder) == 64
+
+
+def test_pick_rung_at_float32_estimator_limit():
+    cap = 1.25e-3
+    estimate = struct.unpack("f", struct.pack("f", cap))[0]
+    assert estimate < cap
+    assert pick_rung(cap, estimate, 1.0, (1, 2, 4)) == 1
+    assert pick_rung(cap, estimate * 0.99999, 1.0, (1, 2, 4)) == 2
 
 
 def _controller(**kw):

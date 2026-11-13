@@ -8,9 +8,9 @@ stable step is already its CFL step, cfl (0.2) x spacing / v_max, so the margin 
 - The rule: SolverDFSPH's safety is 1 with own_cfl and the policy's without; an estimator with no declaration keeps
   the policy's. Beside MPM (an SPH entry paired with an MPM entry) SPH keeps the policy's safety: a slab floating on
   SPH water sat 2 points deeper at the CFL step itself (tests/integration/test_sph_mpm_laws.py L1, WP12).
-- test_kinematic_tilt's fast law beside a free ball (a 30 deg tilt about the lip in 0.3 s): SPH runs 2 substeps per
-  exchange by default, 4 with own_cfl off (main 7e09e7e8d, CPU: wall 51.8 -> 38.7 s), every particle stays in the jug,
-  on or above its floor, and the water's height matches the static-ball reference within 1 mm (as the law).
+- The tilt law beside a free ball (a 30 deg tilt about the lip in 0.3 s) runs at the 1.25 ms cap: one SPH substep
+  per exchange. Every particle stays in the jug, on or above its floor, and the water's height matches the
+  static-ball reference within 1 mm.
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ def _settle_rung(own: bool | None) -> int:
 
 
 def test_the_default_clock_runs_coupled_sph_at_half_the_old_substeps():
-    assert (_settle_rung(None), _settle_rung(False)) == (2, 4)
+    assert (_settle_rung(None), _settle_rung(False)) == (1, 2)
 
 
 @pytest.mark.law
@@ -115,7 +115,7 @@ def test_the_default_clock_runs_coupled_sph_at_half_the_old_substeps():
 def test_a_coupled_tilt_at_sphs_own_cfl_runs_half_the_substeps_and_keeps_its_water():
     loc, sim, subs = _tilt(free=True)
     print(f"own_cfl: SPH substeps per period {dict(sorted(subs.items()))}")
-    assert max(subs) == 2, subs                         # own_cfl off runs 4 here
+    assert max(subs) == 1, subs
     inside = (np.abs(loc[:, 0]) < IN / 2 + 1e-3) & (np.abs(loc[:, 1]) < IN / 2 + 1e-3)
     assert inside.all(), int((~inside).sum())
     assert float(loc[:, 2].min()) > WALL / 2 - 1.5e-3, float(loc[:, 2].min())

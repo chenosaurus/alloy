@@ -91,7 +91,11 @@ def pick_rung(dt_x: float, stable_dt: float, safety: float, ladder: Sequence[int
         return ladder[-1]
     limit = safety * stable_dt
     for n in ladder:
-        if dt_x / n <= limit:
+        step = dt_x / n
+        # The estimator returns float32, while the exchange grid uses host
+        # floats. A one-rounding difference at the limit must not double the
+        # substep count (e.g. SPH at its 1.25 ms cap).
+        if step <= limit or math.isclose(step, limit, rel_tol=2.0**-24):
             return n
     return ladder[-1]
 
