@@ -5,17 +5,18 @@ from __future__ import annotations
 
 import json
 import logging
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import warp as wp
 
 import alloy
-from alloy.camera import Camera, render_cameras
+from alloy.camera import Camera, PbrCameraBatch, render_cameras
 from alloy.camera.camera import _forget, camera_scene
 from alloy.camera.liquid_gpu import LiquidObject, LiquidSurface
 from alloy.camera.liquid_looks import LN10_PER_CM, fast_color, liquid_key, liquid_material
-from alloy.camera.liquid_scene import has_liquids, liquid_objects
+from alloy.camera.liquid_scene import DeviceFlags, has_liquids, liquid_objects
 
 DX = 0.004
 LOOK_AT = ((0.16, -0.16, 0.5), (0.0, 0.0, 0.36))
@@ -183,6 +184,22 @@ def test_a_sim_pack_carries_the_liquid_surface_with_its_look(pour_sim, tmp_path)
     assert any(n["type"] == "ShaderNodeVolumeAbsorption" for n in nodes)
     m = np.load(root / water["file"])
     assert m["n"].shape == (water["tris"], 3, 3) and np.allclose(np.linalg.norm(m["n"], axis=-1), 1.0, atol=1e-5)
+
+
+def test_batch_renders_the_supplied_particle_state(pour_sim):
+    batch = PbrCameraBatch({"front": Camera("front", look_at=LOOK_AT, width=32, height=24, spp=2, quality="full")})
+    engine = pour_sim.engine
+    state = engine.state
+    snapshot = SimpleNamespace(body_q=state.body_q, particle_q=wp.clone(state.particle_q),
+                               particle_qd=wp.clone(state.particle_qd),
+                               particle_flags=wp.clone(DeviceFlags(engine).current()))
+    expected = batch.render(pour_sim)["front"]
+    pour_sim.step(2)
+    np.testing.assert_array_equal(batch.render(pour_sim, state=snapshot)["front"], expected)
+    snapshot.particle_flags.zero_()
+    empty = batch.render(pour_sim, state=snapshot)["front"]
+    assert np.any(empty != expected)
+    assert np.any(batch.render(pour_sim)["front"] != empty)
 
 
 def _pour(device: str, worlds: int = 2):

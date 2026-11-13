@@ -163,7 +163,10 @@ class LiquidSet:
         pq = getattr(state, "particle_q", None)
         if pq is None or self.gs is None:
             return
-        flags, dev, nw = self.flags.current(), self.device, self.layout.worlds
+        flags = getattr(state, "particle_flags", None)
+        if flags is None:
+            flags = self.flags.current()
+        dev, nw = self.device, self.layout.worlds
         for f, s in zip(self.first, self.surfaces):
             _, nt = s.build(pq, flags, getattr(state, "particle_qd", None))
             wp.launch(lk.mesh_bounds, dim=nw, inputs=[s.g, s.nt, s.pts, f], outputs=[self.gs.mesh_lo, self.gs.mesh_hi],

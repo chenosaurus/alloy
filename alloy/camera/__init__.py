@@ -29,7 +29,7 @@ import importlib
 # Names resolve on first use (PEP 562), so subpackages such as alloy.camera.denoiser import without Warp.
 _EXPORTS = {
     "Camera": "camera", "CameraOutput": "camera", "camera_scene": "camera", "default_device": "camera",
-    "load_pack": "camera", "CameraError": "errors", "DenoiseSpec": "denoise", "image_extent": "pose",
+    "load_pack": "camera", "CameraError": "errors", "DenoiseSpec": "denoise", "PbrCameraBatch": "batch", "image_extent": "pose",
     "look_at": "pose", "Lighting": "scene", "MeshGeom": "scene", "SceneData": "scene", "Sun": "scene",
     "TactileRenderer": "tactile", "TactileSensor": "tactile", "TexturedMesh": "meshes", "mesh_scene": "meshes",
     "model_scene": "meshes", "RenderSettings": "settings", "render": "still", "render_cameras": "still", "snapshot": "still",

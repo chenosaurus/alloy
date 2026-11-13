@@ -24,6 +24,13 @@ print(img.shape, batch.shape)
   you keep and render every step. `sim.render(cam)` returns numpy; `cam.render_torch(sim)` returns a torch tensor on
   the GPU for training (`cam.render(sim)` gives the Warp array, overwritten by the next render: copy what you keep).
 - `attach_to="<body name>"` mounts the camera on a body (a wrist camera); its `pose` is then in the body's frame.
+- Pass `look="workbench.look.json"` or `quality="full"` to `alloy.Camera` for full-material live views.
+  Keep the camera and call `sim.render(cam)` each frame to reuse its render buffers. `backend="optix"`
+  selects RT-core tracing when the optional OptiX helper is built; the default `"warp"` uses software tracing.
+- `alloy.camera.PbrCameraBatch(cameras)` takes a dict of named full-material cameras with matching
+  render settings, size and samples. It renders them together with `batch.render(sim)`.
+  With CUDA and `denoise="optix"`, `finish = batch.enqueue(sim)` lets the simulation step while
+  the images denoise and copy to the host. Call `finish()` on the same thread before rendering again.
 - `spp` (samples per pixel) trades noise for time: 4-16 for training images, 64+ for a clean still;
   `denoise="auto"` makes a few samples look like many.
 - Denoising needs a CUDA GPU. `denoise="auto"` uses the learned denoiser when PyTorch is installed
