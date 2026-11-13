@@ -201,16 +201,32 @@ def shape_table(model: Model, cfg: DFSPHConfig, device: wp.context.Device) -> Sh
     a = ShapeArrays()
     a.start = up(start, wp.int32)
     a.ids = up(ids, wp.int32)
+    a.rigid_count = S
+    a.world_xform = wp.empty(max(S, 1), dtype=wp.transform, device=device)
+    a.world_bvh_lower = wp.empty(max(S, 1), dtype=wp.vec3, device=device)
+    a.world_bvh_upper = wp.empty(max(S, 1), dtype=wp.vec3, device=device)
+    keep.extend((a.world_xform, a.world_bvh_lower, a.world_bvh_upper))
+    a.bvh_dist = 2.0 * float(cfg.h)  # BVH search radius (boundary._mesh_bvh_sdf)
     if S:
         a.geo, a.scale, a.xform = model.shape_type, model.shape_scale, model.shape_transform
         a.body, a.radius = model.shape_body, up(origin_radius(model), wp.float32)
         a.mu = model.shape_material_mu
         a.sdf_index = model._shape_sdf_index
         a.mesh, a.bvh = _bvh_arrays(model, ids, _reach(cfg), device, keep)
+        # The query runs in the unscaled mesh frame with radius bvh_dist / min(scale).
+        # Convert that radius to a conservative local-space pad on each axis.
+        scale = np.abs(model.shape_scale.numpy().astype(np.float64))
+        smallest = scale.min(axis=1, keepdims=True)
+        ratio = np.divide(scale, smallest, out=np.ones_like(scale), where=smallest > 0.0)
+        pad = a.bvh_dist * ratio
+        lo = np.nextafter((model.shape_collision_aabb_lower.numpy() - pad).astype(np.float32), -np.inf)
+        hi = np.nextafter((model.shape_collision_aabb_upper.numpy() + pad).astype(np.float32), np.inf)
+        a.bvh_lower, a.bvh_upper = up(lo, wp.vec3), up(hi, wp.vec3)
     else:
         a.geo, a.body, a.sdf_index, a.bvh = (_dummy(device, wp.int32) for _ in range(4))
         a.mesh = _dummy(device, wp.uint64)
         a.scale, a.xform, a.radius = _dummy(device, wp.vec3), _dummy(device, wp.transform), _dummy(device, wp.float32)
+        a.bvh_lower, a.bvh_upper = _dummy(device, wp.vec3), _dummy(device, wp.vec3)
         a.mu = _dummy(device, wp.float32)
     tex = getattr(model, "_texture_sdf_data", None)
     if tex is None or len(tex) == 0:
@@ -221,7 +237,6 @@ def shape_table(model: Model, cfg: DFSPHConfig, device: wp.context.Device) -> Sh
     a.offset, a.amplitude = (float(v) for v in boundary_fit(cfg.spacing, cfg.h, cfg.kernel))
     a.taper0, a.taper1 = 0.5 * cfg.spacing, 1.5 * cfg.spacing
     a.reach = _reach(cfg)
-    a.bvh_dist = 2.0 * float(cfg.h)  # BVH search radius (boundary._mesh_bvh_sdf)
     a.soft = empty_soft(S, device)  # SolverDFSPH installs its SoftWalls (soft_walls.py)
     a.pw = empty_walls(S, cfg.h, cfg.kernel_id, device)  # SolverDFSPH installs its ParticleWalls
     a.friction = int(bool(cfg.wall_friction))

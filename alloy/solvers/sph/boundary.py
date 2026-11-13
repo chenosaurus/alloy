@@ -143,6 +143,12 @@ class ShapeArrays:
     tex: wp.array[TextureSDFData]
     mesh: wp.array[wp.uint64]  # Model.shape_source_ptr: wp.Mesh ids, for the BVH path
     bvh: wp.array[wp.int32]  # per model shape, 1: read the mesh BVH (no SDF, or its band misses the reach; sdf_band.py)
+    bvh_lower: wp.array[wp.vec3]  # local mesh bounds padded by the closest-point query radius
+    bvh_upper: wp.array[wp.vec3]
+    world_xform: wp.array[wp.transform]  # start-of-step transforms for boundary slot selection and filling
+    world_bvh_lower: wp.array[wp.vec3]
+    world_bvh_upper: wp.array[wp.vec3]
+    rigid_count: int
     bvh_dist: float  # [m] BVH closest-point search radius (2 h); farther points read +bvh_dist (outside, no slot)
     curvature: int
     offset: float  # wall offset delta [m] (kernels.boundary_fit)
@@ -154,6 +160,36 @@ class ShapeArrays:
     pw: ParticleWallArrays  # another entry's particles: virtual shape pw.base (particle_walls.py)
     mu: wp.array[wp.float32]  # per model shape: Coulomb friction of the wall projection (Config.wall_friction)
     friction: int  # 1: Config.wall_friction
+
+
+@wp.func
+def _abs3(v: wp.vec3) -> wp.vec3:
+    return wp.vec3(wp.abs(v[0]), wp.abs(v[1]), wp.abs(v[2]))
+
+
+@wp.kernel(enable_backward=False)
+def _prepare_rigid_shapes(shapes: ShapeArrays, body_q: wp.array[wp.transform]):
+    """Transform each rigid boundary once per liquid step."""
+    s = wp.tid()
+    pose = shape_world_transform(s, shapes.body, shapes.xform, body_q)
+    shapes.world_xform[s] = pose
+    if shapes.bvh[s] != 0:
+        lo, hi = shapes.bvh_lower[s], shapes.bvh_upper[s]
+        extent = 0.5 * (hi - lo)
+        centre = wp.transform_point(pose, 0.5 * (lo + hi))
+        ex = wp.transform_vector(pose, wp.vec3(extent[0], 0.0, 0.0))
+        ey = wp.transform_vector(pose, wp.vec3(0.0, extent[1], 0.0))
+        ez = wp.transform_vector(pose, wp.vec3(0.0, 0.0, extent[2]))
+        # Allow for roundoff in both the AABB transform and the later inverse transform.
+        radius = _abs3(ex) + _abs3(ey) + _abs3(ez)
+        padding = 1.0e-6 * (wp.vec3(1.0) + _abs3(centre) + radius)
+        shapes.world_bvh_lower[s] = centre - radius - padding
+        shapes.world_bvh_upper[s] = centre + radius + padding
+
+
+@wp.func
+def _outside_box(x: wp.vec3, lo: wp.vec3, hi: wp.vec3) -> bool:
+    return x[0] < lo[0] or x[0] > hi[0] or x[1] < lo[1] or x[1] > hi[1] or x[2] < lo[2] or x[2] > hi[2]
 
 
 @wp.func
@@ -182,14 +218,17 @@ def shape_sdf(shapes: ShapeArrays, s: int, xl: wp.vec3):
     without a volume SDF (sdf_index -1: eval_shape_sdf would read texture_sdf_table[-1]) or whose SDF's narrow band
     does not reach the liquid's reach (sdf_band.py)."""
     if shapes.bvh[s] != 0:
+        if _outside_box(xl, shapes.bvh_lower[s], shapes.bvh_upper[s]):
+            return shapes.bvh_dist, shapes.bvh_dist, wp.vec3(0.0, 0.0, 1.0)
         return _mesh_bvh_sdf(shapes.mesh[s], shapes.scale[s], xl, shapes.bvh_dist)
     return eval_shape_sdf(shapes.geo[s], shapes.scale[s], xl, shapes.sdf_index[s], shapes.tex)
 
 
 @wp.func
 def _slot_insert(slots_shape: wp.array2d[wp.int32], slots_phi: wp.array2d[wp.float32],
-                 slots_face: wp.array2d[wp.int32], i: int, n: int, s: int, phi: float, face: int) -> int:
-    """Insert (s, phi, face) into the phi-ascending slot row; returns the slot index used, or -1 if dropped."""
+                 slots_face: wp.array2d[wp.int32], slots_normal: wp.array2d[wp.vec3], i: int, n: int,
+                 s: int, phi: float, face: int, normal: wp.vec3) -> int:
+    """Insert a surface sample into the phi-ascending row; return the slot index or -1 if dropped."""
     pos = n
     k = n - 1
     while k >= 0:
@@ -207,10 +246,12 @@ def _slot_insert(slots_shape: wp.array2d[wp.int32], slots_phi: wp.array2d[wp.flo
         slots_shape[i, k] = slots_shape[i, k - 1]
         slots_phi[i, k] = slots_phi[i, k - 1]
         slots_face[i, k] = slots_face[i, k - 1]
+        slots_normal[i, k] = slots_normal[i, k - 1]
         k -= 1
     slots_shape[i, pos] = s
     slots_phi[i, pos] = phi
     slots_face[i, pos] = face
+    slots_normal[i, pos] = normal
     return pos
 
 
@@ -221,11 +262,11 @@ def _find_slots_kernel(
     phase: wp.array[wp.int8],
     world: wp.array[wp.int32],
     shapes: ShapeArrays,
-    body_q: wp.array[wp.transform],
     h: float,
     slot_shape: wp.array2d[wp.int32],
     slot_phi: wp.array2d[wp.float32],
     slot_face: wp.array2d[wp.int32],
+    slot_normal: wp.array2d[wp.vec3],
 ):
     i = wp.tid()
     for k in range(4):
@@ -238,7 +279,9 @@ def _find_slots_kernel(
     n = int(0)
     for c in range(shapes.start[w], shapes.start[w + 1]):
         s = shapes.ids[c]
-        X = shape_world_transform(s, shapes.body, shapes.xform, body_q)
+        if shapes.bvh[s] != 0 and _outside_box(x, shapes.world_bvh_lower[s], shapes.world_bvh_upper[s]):
+            continue
+        X = shapes.world_xform[s]
         geo = shapes.geo[s]
         if geo != _GEO_PLANE:
             if wp.length(x - wp.transform_get_translation(X)) > shapes.radius[s] + h:
@@ -246,18 +289,20 @@ def _find_slots_kernel(
         xl = wp.transform_point(wp.transform_inverse(X), x)
         _lo, phi, gl = shape_sdf(shapes, s, xl)
         if phi < shapes.reach and phi + shapes.offset < h:
-            if _slot_insert(slot_shape, slot_phi, slot_face, i, n, s, phi, -1) >= 0 and n < 4:
+            if _slot_insert(slot_shape, slot_phi, slot_face, slot_normal, i, n, s, phi, -1, gl) >= 0 and n < 4:
                 n += 1
     cb, fb, pb = soft_candidates(shapes.soft, x, w)
     for j in range(4):
         if cb[j] >= 0 and pb[j] < shapes.reach and pb[j] + shapes.offset < h:
-            if _slot_insert(slot_shape, slot_phi, slot_face, i, n, shapes.soft.base + cb[j], pb[j], fb[j]) >= 0:
+            if _slot_insert(slot_shape, slot_phi, slot_face, slot_normal, i, n, shapes.soft.base + cb[j],
+                            pb[j], fb[j], wp.vec3(0.0)) >= 0:
                 if n < 4:
                     n += 1
     if shapes.pw.count > 0:
         phi = pw_candidate(shapes.pw, x, w)
         if phi < shapes.reach and phi + shapes.offset < h:
-            if _slot_insert(slot_shape, slot_phi, slot_face, i, n, shapes.pw.base, phi, -1) >= 0 and n < 4:
+            if _slot_insert(slot_shape, slot_phi, slot_face, slot_normal, i, n, shapes.pw.base, phi, -1,
+                            wp.vec3(0.0)) >= 0 and n < 4:
                 n += 1
 
 
@@ -331,10 +376,11 @@ def _fill_one(i: int, k: int, x: wp.vec3, world: int, shapes: ShapeArrays, body_
         _fill_soft(i, k, x, shapes, h, kind, slot_face[i, k], slot_psi, slot_gpsi, slot_xb, slot_vb, slot_phi,
                    slot_xbl, slot_nbl, slot_bary)
         return
-    X = shape_world_transform(s, shapes.body, shapes.xform, body_q)
+    X = shapes.world_xform[s]
     geo = shapes.geo[s]
     xl = wp.transform_point(wp.transform_inverse(X), x)
-    _lo, phi, gl = shape_sdf(shapes, s, xl)
+    # The selection pass sampled this same position and shape pose.
+    phi, gl = slot_phi[i, k], slot_nbl[i, k]
     nrm = wp.normalize(wp.transform_vector(X, gl))
     nl = wp.normalize(gl)
     slot_nbl[i, k] = nl
@@ -417,8 +463,10 @@ def compute_slots(
     n = q.shape[0]
     if n == 0:
         return
-    wp.launch(_find_slots_kernel, dim=n, inputs=[q, flags, phase, world, shapes, body_q, h, slots.shape, slots.phi,
-                                                 slots.face], device=device)
+    if shapes.rigid_count:
+        wp.launch(_prepare_rigid_shapes, dim=shapes.rigid_count, inputs=[shapes, body_q], device=device)
+    wp.launch(_find_slots_kernel, dim=n, inputs=[q, flags, phase, world, shapes, h, slots.shape, slots.phi,
+                                                 slots.face, slots.nbl], device=device)
     wp.launch(
         _fill_slots_kernel, dim=n,
         inputs=[q, world, shapes, body_q, body_qd, body_com, h, kind, slots.shape, slots.psi, slots.gpsi, slots.xb,
