@@ -375,10 +375,22 @@ async def operator_main(args):
     op = Operator(config(OperatorConfig, args))
     seen, baseline, lo, hi = 0, None, math.inf, -math.inf
     first_observation, last_observation = None, None
+    incomplete = 0
+    expected = set(VIDEOS)
+    per_camera = dict.fromkeys(VIDEOS, 0)
+    sizes = {name: set() for name in VIDEOS}
     start = time.monotonic()
 
     def observe(obs):
-        nonlocal seen, baseline, lo, hi, first_observation, last_observation
+        nonlocal seen, baseline, lo, hi, first_observation, last_observation, incomplete
+        names = set(obs.frames)
+        for name in names & expected:
+            frame = obs.frames[name]
+            per_camera[name] += 1
+            sizes[name].add((frame.width, frame.height))
+        if names != expected:
+            incomplete += 1
+            return
         last_observation = time.monotonic()
         if first_observation is None:
             first_observation = last_observation
@@ -418,6 +430,12 @@ async def operator_main(args):
         rate = (seen - 1) / elapsed if elapsed else 0.
         print(f"RESULT observations={seen} observation_elapsed_s={elapsed:.3f} received_fps={rate:.2f} "
               f"measured_joint_span_rad={hi-lo:.5f}", flush=True)
+        for name in VIDEOS:
+            print(f"CAMERA {name} received={per_camera[name]} sizes={sorted(sizes[name])}", flush=True)
+        if args.min_received_fps is not None and (rate < args.min_received_fps or incomplete
+                or any(sizes[name] != {(args.width, args.height)} for name in VIDEOS)):
+            raise RuntimeError(f"Portal reception failed: {rate:.2f} FPS, {incomplete} incomplete observations; "
+                               f"expected at least {args.min_received_fps:g} FPS with three {args.width}×{args.height} cameras")
         if not seen or (args.move and hi - lo < .03):
             raise RuntimeError("No synchronized observations or commanded motion not observed")
     finally:
@@ -495,12 +513,17 @@ def main():
     parser.add_argument("--viewer", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--move", action="store_true", help="Operator sends a small joint-1 sine wave to each simulated arm")
+    parser.add_argument("--min-received-fps", type=float,
+                        help="Operator test: fail below this rate or if any synchronized camera is missing")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
     if args.width <= 0 or args.height <= 0 or args.width % 2 or args.height % 2:
         parser.error("Video width and height must be positive and even")
     if args.seconds < 0 or args.spp < 1:
         parser.error("seconds must be nonnegative and spp must be positive")
+    if args.min_received_fps is not None and (
+            args.mode != "operator" or not math.isfinite(args.min_received_fps) or args.min_received_fps <= 0):
+        parser.error("min-received-fps needs operator mode and a positive finite rate")
     if not 1 <= args.fps <= 50:
         parser.error("fps must be between 1 and 50")
     if args.steps_per_frame is not None and (not math.isfinite(args.steps_per_frame) or args.steps_per_frame < 1):
